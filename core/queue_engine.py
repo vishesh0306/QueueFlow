@@ -122,14 +122,29 @@ def handle_no_show(db: Session, token_id: uuid.UUID) -> dict:
     return {"action": "requeued", "new_called_token_id": None}
 
 
+def _next_display_number(session: QueueSession, *, tier: str, emergency: bool) -> str:
+    """Session+tier-scoped, human-friendly counter (e.g. "S-14", "P-3", "E-1") — cosmetic only,
+    doesn't touch sequence_no or queue ordering. Caller must hold a lock on `session`."""
+    if emergency:
+        session.emergency_token_counter += 1
+        return f"E-{session.emergency_token_counter}"
+    if tier == "priority":
+        session.priority_token_counter += 1
+        return f"P-{session.priority_token_counter}"
+    session.standard_token_counter += 1
+    return f"S-{session.standard_token_counter}"
+
+
 def trigger_emergency_override(db: Session, session_id: uuid.UUID, patient_contact: str) -> Token:
     """Doctor/admin-only: insert a walk-in that bypasses tier/position entirely (HLD §8)."""
+    session = db.execute(select(QueueSession).where(QueueSession.id == session_id).with_for_update()).scalar_one()
     token = Token(
         session_id=session_id,
         patient_contact=patient_contact,
         tier="standard",
         emergency_override=True,
         status="waiting",
+        display_number=_next_display_number(session, tier="standard", emergency=True),
     )
     db.add(token)
     db.commit()
@@ -162,9 +177,19 @@ def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSess
 
 
 def join_queue(db: Session, session: QueueSession, patient_contact: str, tier: str) -> Token:
-    if session.status == "closed":
-        raise SessionClosedError(session.clinic_id)
-    token = Token(session_id=session.id, patient_contact=patient_contact, tier=tier, status="waiting")
+    locked_session = db.execute(
+        select(QueueSession).where(QueueSession.id == session.id).with_for_update()
+    ).scalar_one()
+    if locked_session.status == "closed":
+        raise SessionClosedError(locked_session.clinic_id)
+
+    token = Token(
+        session_id=locked_session.id,
+        patient_contact=patient_contact,
+        tier=tier,
+        status="waiting",
+        display_number=_next_display_number(locked_session, tier=tier, emergency=False),
+    )
     db.add(token)
     db.commit()
     db.refresh(token)

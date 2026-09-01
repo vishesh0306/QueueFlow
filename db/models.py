@@ -88,6 +88,9 @@ class QueueSession(Base):
     session_date: Mapped[object] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(SessionStatus, nullable=False, default="active")
     call_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    standard_token_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    priority_token_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    emergency_token_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     opened_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
     closed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -114,6 +117,8 @@ class Token(Base):
     status: Mapped[str] = mapped_column(TokenStatus, nullable=False, default="waiting")
     sequence_no: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
     swap_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    display_number: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    lead_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     joined_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
     called_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     served_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)

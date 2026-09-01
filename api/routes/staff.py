@@ -56,7 +56,8 @@ def call_next(db: Session = Depends(get_db), claims: JWTClaims = Depends(require
         raise APIError(409, "QUEUE_EMPTY", "No patients are currently waiting.")
 
     return CallNextResponse(
-        token_id=token.id, tier=token.tier, patient_contact=token.patient_contact, called_at=token.called_at,
+        token_id=token.id, display_number=token.display_number, tier=token.tier,
+        patient_contact=token.patient_contact, called_at=token.called_at,
     )
 
 
@@ -101,7 +102,7 @@ def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
     except queue_engine.SessionClosedError:
         raise APIError(409, "SESSION_CLOSED", "This clinic's queue is not currently accepting new tokens.")
 
-    return {"token_id": token.id, "tier": token.tier, "status": token.status}
+    return {"token_id": token.id, "display_number": token.display_number, "tier": token.tier, "status": token.status}
 
 
 @router.post("/staff/queue/emergency-override", status_code=201)
@@ -109,7 +110,7 @@ def emergency_override(body: EmergencyOverrideRequest, db: Session = Depends(get
                         claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
     session = queue_engine.get_or_create_active_session(db, claims.clinic_id)
     token = queue_engine.trigger_emergency_override(db, session.id, body.patient_contact.as_column_value())
-    return {"token_id": token.id, "emergency_override": token.emergency_override}
+    return {"token_id": token.id, "display_number": token.display_number, "emergency_override": token.emergency_override}
 
 
 @router.post("/staff/queue/pause")

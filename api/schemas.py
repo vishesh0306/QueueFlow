@@ -20,6 +20,7 @@ class JoinQueueRequest(BaseModel):
 
 class JoinQueueResponse(BaseModel):
     token_id: uuid.UUID
+    display_number: str | None
     tier: str
     position: int
     estimated_wait_seconds: int
@@ -28,6 +29,7 @@ class JoinQueueResponse(BaseModel):
 
 class TokenStatusResponse(BaseModel):
     token_id: uuid.UUID
+    display_number: str | None
     tier: str
     status: str
     position: int | None
@@ -36,6 +38,7 @@ class TokenStatusResponse(BaseModel):
 
 class CallNextResponse(BaseModel):
     token_id: uuid.UUID
+    display_number: str | None
     tier: str
     patient_contact: str
     called_at: datetime
