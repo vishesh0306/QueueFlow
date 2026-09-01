@@ -3,13 +3,8 @@ from datetime import date
 
 import pytest
 
-from core.queue_engine import (
-    InvalidTransitionError,
-    QueueEmptyError,
-    call_next,
-    handle_no_show,
-    trigger_emergency_override,
-)
+from core.exceptions import InvalidTransitionError, QueueEmptyError
+from core.queue_engine import call_next, handle_no_show, trigger_emergency_override
 from db.models import Clinic, QueueSession, StaffAccount, Token
 
 

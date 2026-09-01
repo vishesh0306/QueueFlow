@@ -1,6 +1,7 @@
 from datetime import date
 
-from core.queue_engine import join_queue, trigger_emergency_override
+from core.queue_engine import trigger_emergency_override
+from core.token_service import join_queue
 from db.models import Clinic, QueueSession, StaffAccount
 
 
