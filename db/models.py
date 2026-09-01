@@ -91,6 +91,7 @@ class QueueSession(Base):
     standard_token_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     priority_token_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     emergency_token_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    no_show_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     opened_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
     closed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -114,6 +114,7 @@ class DailyAnalyticsResponse(BaseModel):
     average_wait_seconds: float | None
     average_service_seconds: float | None
     no_show_count: int
+    no_show_rate: float | None
 
 
 class ErrorDetail(BaseModel):

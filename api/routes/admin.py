@@ -2,17 +2,19 @@ import uuid
 
 import bcrypt
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from api.deps import APIError, JWTClaims, require_role
 from api.schemas import (
     ClinicConfigResponse,
     ClinicConfigUpdateRequest,
+    DailyAnalyticsResponse,
     StaffCreateRequest,
     StaffResponse,
 )
-from db.models import Clinic, StaffAccount
+from core import session_service
+from db.models import Clinic, ServiceTimeSample, StaffAccount, Token
 from db.session import get_db
 
 router = APIRouter(tags=["admin"])
@@ -72,7 +74,31 @@ def create_staff(body: StaffCreateRequest, db: Session = Depends(get_db),
     return StaffResponse(id=staff.id, name=staff.name, role=staff.role, contact=staff.contact)
 
 
-# GET /admin/analytics/daily is deliberately not built here — it belongs to the
-# stats phase (queueflow-workflow.md, Phase 6), which is what actually gives
-# no-show tracking a persisted representation to report on. Wiring up a
-# same-looking-but-wrong endpoint now would just mean redoing it later.
+@router.get("/admin/analytics/daily", response_model=DailyAnalyticsResponse)
+def daily_analytics(db: Session = Depends(get_db),
+                     claims: JWTClaims = Depends(require_role("doctor", "admin"))):
+    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+
+    served_count = db.execute(
+        select(func.count()).select_from(Token).where(Token.session_id == session.id, Token.status == "served")
+    ).scalar_one()
+    average_service_seconds = db.execute(
+        select(func.avg(ServiceTimeSample.duration_seconds)).where(ServiceTimeSample.session_id == session.id)
+    ).scalar_one()
+    average_wait_seconds = db.execute(
+        select(func.avg(func.extract("epoch", Token.called_at - Token.joined_at))).where(
+            Token.session_id == session.id, Token.called_at.is_not(None),
+        )
+    ).scalar_one()
+
+    total_calls = session.call_counter
+    no_show_rate = (session.no_show_count / total_calls) if total_calls > 0 else None
+
+    return DailyAnalyticsResponse(
+        session_date=str(session.session_date),
+        served_count=served_count,
+        average_wait_seconds=average_wait_seconds,
+        average_service_seconds=average_service_seconds,
+        no_show_count=session.no_show_count,
+        no_show_rate=no_show_rate,
+    )

@@ -87,6 +87,18 @@ def test_no_show_swaps_with_next_same_tier(db):
     assert b.status == "called"
 
 
+def test_no_show_increments_session_no_show_count(db):
+    session = _make_clinic_session(db)
+    a = _join(db, session, "standard", "t:a")
+    _join(db, session, "standard", "t:b")
+
+    call_next(db, session.id)
+    handle_no_show(db, a.id)
+
+    db.refresh(session)
+    assert session.no_show_count == 1
+
+
 def test_swapped_token_reinserted_immediately_behind_partner(db):
     session = _make_clinic_session(db)
     a = _join(db, session, "standard", "t:a")
@@ -111,6 +123,9 @@ def test_no_show_with_no_partner_requeues_to_back(db):
     assert result == {"action": "requeued", "new_called_token_id": None}
     db.refresh(a)
     assert a.status == "waiting"
+
+    db.refresh(session)
+    assert session.no_show_count == 1  # counted even though there was no swap partner
 
 
 def test_swap_used_token_falls_back_to_requeue_on_second_noshow(db):

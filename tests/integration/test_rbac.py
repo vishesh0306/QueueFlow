@@ -48,6 +48,7 @@ def _endpoints(clinic_id: uuid.UUID):
         ("post", "/staff/queue/resume", {}, ("doctor", "admin")),
         ("get", f"/admin/clinics/{clinic_id}/config", None, ("admin",)),
         ("put", f"/admin/clinics/{clinic_id}/config", {"name": "New Name"}, ("admin",)),
+        ("get", "/admin/analytics/daily", None, ("doctor", "admin")),
         ("get", "/admin/staff", None, ("admin",)),
         ("post", "/admin/staff",
          {"name": "New Staff", "role": "receptionist", "contact": "new@rbactest.local", "password": "x"},

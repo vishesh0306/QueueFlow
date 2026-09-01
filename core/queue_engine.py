@@ -91,6 +91,11 @@ def handle_no_show(db: Session, token_id: uuid.UUID) -> dict:
     if token.status != "called":
         raise InvalidTransitionError(f"Token {token_id} is not in 'called' state")
 
+    session = db.execute(
+        select(QueueSession).where(QueueSession.id == token.session_id).with_for_update()
+    ).scalar_one()
+    session.no_show_count += 1
+
     if not token.swap_used:
         partner = _next_waiting_token(db, token.session_id, tier=token.tier)
 
