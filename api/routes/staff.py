@@ -2,6 +2,7 @@ import uuid
 
 import bcrypt
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from core import queue_engine, session_service, token_service
 from core.exceptions import InvalidTransitionError, QueueEmptyError, SessionClosedError
 from db.models import QueueSession, StaffAccount, Token
 from db.session import get_db
+from ws.gateway import manager
 
 router = APIRouter(tags=["staff"])
 
@@ -49,12 +51,14 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/staff/queue/call-next", response_model=CallNextResponse)
-def call_next(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
-    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+async def call_next(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    session = await run_in_threadpool(session_service.get_or_create_active_session, db, claims.clinic_id)
     try:
-        token = queue_engine.call_next(db, session.id)
+        token = await run_in_threadpool(queue_engine.call_next, db, session.id)
     except QueueEmptyError:
         raise APIError(409, "QUEUE_EMPTY", "No patients are currently waiting.")
+
+    await manager.broadcast_queue_updated(claims.clinic_id, session.id)
 
     return CallNextResponse(
         token_id=token.id, display_number=token.display_number, tier=token.tier,
@@ -63,13 +67,16 @@ def call_next(db: Session = Depends(get_db), claims: JWTClaims = Depends(require
 
 
 @router.post("/staff/queue/tokens/{token_id}/no-show", response_model=NoShowResponse)
-def no_show(token_id: uuid.UUID, db: Session = Depends(get_db),
-            claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+async def no_show(token_id: uuid.UUID, db: Session = Depends(get_db),
+                   claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     _verify_token_in_clinic(db, token_id, claims.clinic_id)
     try:
-        result = queue_engine.handle_no_show(db, token_id)
+        result = await run_in_threadpool(queue_engine.handle_no_show, db, token_id)
     except InvalidTransitionError as exc:
         raise APIError(409, "INVALID_TRANSITION", str(exc))
+
+    session_id = db.execute(select(Token.session_id).where(Token.id == token_id)).scalar_one()
+    await manager.broadcast_queue_updated(claims.clinic_id, session_id)
 
     return NoShowResponse(token_id=token_id, **result)
 

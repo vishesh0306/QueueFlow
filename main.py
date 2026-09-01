@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 
 from api.deps import APIError
 from api.routes import admin, patient, staff
+from ws.gateway import router as ws_router
 
 app = FastAPI(title="QueueFlow")
 
@@ -15,6 +16,7 @@ def handle_api_error(request: Request, exc: APIError):
 app.include_router(patient.router)
 app.include_router(staff.router)
 app.include_router(admin.router)
+app.include_router(ws_router)
 
 
 @app.get("/health")
