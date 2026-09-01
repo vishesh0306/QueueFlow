@@ -106,7 +106,9 @@ def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
             claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     session = session_service.get_or_create_active_session(db, claims.clinic_id)
     try:
-        token = token_service.join_queue(db, session, body.patient_contact.as_column_value(), body.tier)
+        token = token_service.join_queue(
+            db, session, body.patient_contact.as_column_value(), body.tier, body.patient_email
+        )
     except SessionClosedError:
         raise APIError(409, "SESSION_CLOSED", "This clinic's queue is not currently accepting new tokens.")
 

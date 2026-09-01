@@ -16,6 +16,7 @@ class PatientContact(BaseModel):
 class JoinQueueRequest(BaseModel):
     patient_contact: PatientContact
     tier: Literal["standard", "priority"] = "standard"
+    patient_email: str | None = None  # optional fallback contact if patient_contact's channel fails
 
 
 class JoinQueueResponse(BaseModel):
@@ -53,6 +54,7 @@ class NoShowResponse(BaseModel):
 class WalkInRequest(BaseModel):
     patient_contact: PatientContact
     tier: Literal["standard", "priority"] = "standard"
+    patient_email: str | None = None
 
 
 class EmergencyOverrideRequest(BaseModel):

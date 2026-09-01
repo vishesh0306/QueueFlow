@@ -26,7 +26,8 @@ async def join_queue(clinic_id: uuid.UUID, body: JoinQueueRequest, db: Session =
     try:
         session = await run_in_threadpool(session_service.get_or_create_active_session, db, clinic_id)
         token = await run_in_threadpool(
-            token_service.join_queue, db, session, body.patient_contact.as_column_value(), body.tier
+            token_service.join_queue, db, session, body.patient_contact.as_column_value(), body.tier,
+            body.patient_email,
         )
     except SessionClosedError:
         raise APIError(409, "SESSION_CLOSED", "This clinic's queue is not currently accepting new tokens.")

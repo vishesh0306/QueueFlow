@@ -112,6 +112,7 @@ class Token(Base):
         UUID(as_uuid=True), ForeignKey("queue_sessions.id", ondelete="CASCADE"), nullable=False
     )
     patient_contact: Mapped[str] = mapped_column(String(120), nullable=False)
+    patient_email: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tier: Mapped[str] = mapped_column(TokenTier, nullable=False, default="standard")
     emergency_override: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(TokenStatus, nullable=False, default="waiting")

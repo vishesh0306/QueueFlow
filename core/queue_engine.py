@@ -8,6 +8,18 @@ from core.exceptions import InvalidTransitionError, QueueEmptyError
 from core.interleave import next_subqueue, parse_ratio
 from core.session_service import next_display_number
 from db.models import QueueSession, Token
+from notifications.service import enqueue_notification
+
+
+def _notify_your_turn(token: Token, clinic_name: str) -> None:
+    enqueue_notification({
+        "token_id": str(token.id),
+        "event": "your_turn",
+        "patient_contact": token.patient_contact,
+        "patient_email": token.patient_email,
+        "clinic_name": clinic_name,
+        "display_number": token.display_number,
+    })
 
 
 def _next_waiting_token(db: Session, session_id: uuid.UUID, *, tier: str | None = None,
@@ -69,6 +81,7 @@ def call_next(db: Session, session_id: uuid.UUID) -> Token:
     token.called_at = utcnow()
     session.call_counter += 1
     db.commit()
+    _notify_your_turn(token, session.clinic.name)
     return token
 
 
@@ -88,6 +101,7 @@ def handle_no_show(db: Session, token_id: uuid.UUID) -> dict:
             partner.status = "called"
             partner.called_at = utcnow()
             db.commit()
+            _notify_your_turn(partner, partner.session.clinic.name)
             return {"action": "swapped", "new_called_token_id": partner.id}
 
     # No swap partner available, or swap already used once for this token —

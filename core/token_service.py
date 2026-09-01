@@ -9,7 +9,8 @@ from core.session_service import next_display_number
 from db.models import Payment, QueueSession, ServiceTimeSample, Token
 
 
-def join_queue(db: Session, session: QueueSession, patient_contact: str, tier: str) -> Token:
+def join_queue(db: Session, session: QueueSession, patient_contact: str, tier: str,
+               patient_email: str | None = None) -> Token:
     locked_session = db.execute(
         select(QueueSession).where(QueueSession.id == session.id).with_for_update()
     ).scalar_one()
@@ -19,6 +20,7 @@ def join_queue(db: Session, session: QueueSession, patient_contact: str, tier: s
     token = Token(
         session_id=locked_session.id,
         patient_contact=patient_contact,
+        patient_email=patient_email,
         tier=tier,
         status="waiting",
         display_number=next_display_number(locked_session, tier=tier, emergency=False),
