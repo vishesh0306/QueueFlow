@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: queueflow
+      POSTGRES_PASSWORD: queueflow
+      POSTGRES_DB: queueflow
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports: ["8000:8000"]
+    depends_on: [postgres, redis]
+    environment:
+      DATABASE_URL: postgresql://queueflow:queueflow@postgres:5432/queueflow
+      REDIS_URL: redis://redis:6379/0
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    depends_on: [postgres, redis]
+    environment:
+      DATABASE_URL: postgresql://queueflow:queueflow@postgres:5432/queueflow
+      REDIS_URL: redis://redis:6379/0
+
+volumes:
+  pgdata:
