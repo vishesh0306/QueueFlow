@@ -22,6 +22,26 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_staff_queue_list_reflects_called_and_waiting_tokens(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+
+    ids = []
+    for contact in ("a@b.com", "b@b.com"):
+        resp = client.post(
+            f"/clinics/{clinic.id}/queue/join",
+            json={"patient_contact": {"type": "email", "value": contact}, "tier": "standard"},
+        )
+        ids.append(resp.json()["token_id"])
+
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+
+    queue = client.get("/staff/queue", headers=_auth(staff_token)).json()
+    assert queue["session_status"] == "active"
+    assert [t["token_id"] for t in queue["called"]] == [ids[0]]
+    assert [t["token_id"] for t in queue["waiting"]] == [ids[1]]
+
+
 def test_patient_join_then_staff_calls_and_serves(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")

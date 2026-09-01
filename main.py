@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.deps import APIError
 from api.routes import admin, patient, staff
@@ -22,3 +23,6 @@ app.include_router(ws_router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+app.mount("/dashboard", StaticFiles(directory="static/dashboard", html=True), name="dashboard")

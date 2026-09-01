@@ -45,6 +45,24 @@ class CallNextResponse(BaseModel):
     called_at: datetime
 
 
+class QueueTokenSummary(BaseModel):
+    token_id: uuid.UUID
+    display_number: str | None
+    tier: str
+    status: str
+    patient_contact: str
+    emergency_override: bool
+    joined_at: datetime
+    called_at: datetime | None
+
+
+class QueueListResponse(BaseModel):
+    session_id: uuid.UUID
+    session_status: str
+    called: list[QueueTokenSummary]
+    waiting: list[QueueTokenSummary]
+
+
 class NoShowResponse(BaseModel):
     token_id: uuid.UUID
     action: str

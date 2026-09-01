@@ -14,6 +14,8 @@ from api.schemas import (
     LoginResponse,
     MarkPaidRequest,
     NoShowResponse,
+    QueueListResponse,
+    QueueTokenSummary,
     WalkInRequest,
 )
 from core import queue_engine, session_service, token_service
@@ -48,6 +50,31 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
     token = create_access_token(staff.id, staff.clinic_id, staff.role)
     return LoginResponse(access_token=token, role=staff.role, clinic_id=staff.clinic_id)
+
+
+@router.get("/staff/queue", response_model=QueueListResponse)
+def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+
+    tokens = db.execute(
+        select(Token)
+        .where(Token.session_id == session.id, Token.status.in_(("waiting", "called")))
+        .order_by(Token.sequence_no)
+    ).scalars().all()
+
+    def _summary(t: Token) -> QueueTokenSummary:
+        return QueueTokenSummary(
+            token_id=t.id, display_number=t.display_number, tier=t.tier, status=t.status,
+            patient_contact=t.patient_contact, emergency_override=t.emergency_override,
+            joined_at=t.joined_at, called_at=t.called_at,
+        )
+
+    return QueueListResponse(
+        session_id=session.id,
+        session_status=session.status,
+        called=[_summary(t) for t in tokens if t.status == "called"],
+        waiting=[_summary(t) for t in tokens if t.status == "waiting"],
+    )
 
 
 @router.post("/staff/queue/call-next", response_model=CallNextResponse)

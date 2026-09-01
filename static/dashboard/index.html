@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QueueFlow Staff Dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="login-screen">
+  <form id="login-form">
+    <h1>QueueFlow</h1>
+    <p class="subtitle">Staff sign-in</p>
+    <label>Contact
+      <input type="text" id="login-contact" required autocomplete="username">
+    </label>
+    <label>Password
+      <input type="password" id="login-password" required autocomplete="current-password">
+    </label>
+    <button type="submit">Sign in</button>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+
+<div id="dashboard-screen" class="hidden">
+  <header>
+    <div>
+      <strong id="clinic-role"></strong>
+      <span id="session-status" class="badge"></span>
+    </div>
+    <div>
+      <button id="pause-resume-btn" class="hidden secondary"></button>
+      <button id="logout-btn" class="secondary">Log out</button>
+    </div>
+  </header>
+
+  <p id="banner" class="banner hidden"></p>
+
+  <section class="called-section">
+    <h2>Currently called</h2>
+    <div id="called-list" class="token-list"></div>
+    <button id="call-next-btn">Call next patient</button>
+  </section>
+
+  <section class="actions-section">
+    <div class="card">
+      <h3>Add walk-in</h3>
+      <form id="walkin-form">
+        <select id="walkin-contact-type">
+          <option value="telegram">Telegram</option>
+          <option value="email">Email</option>
+        </select>
+        <input type="text" id="walkin-contact-value" placeholder="Contact value" required>
+        <input type="email" id="walkin-email" placeholder="Fallback email (optional)">
+        <select id="walkin-tier">
+          <option value="standard">Standard</option>
+          <option value="priority">Priority</option>
+        </select>
+        <button type="submit">Add to queue</button>
+      </form>
+    </div>
+
+    <div id="override-card" class="card hidden">
+      <h3>Emergency override</h3>
+      <form id="override-form">
+        <select id="override-contact-type">
+          <option value="telegram">Telegram</option>
+          <option value="email">Email</option>
+        </select>
+        <input type="text" id="override-contact-value" placeholder="Contact value" required>
+        <button type="submit" class="danger">Insert emergency</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="waiting-section">
+    <h2>Waiting</h2>
+    <table id="waiting-table">
+      <thead>
+        <tr><th>#</th><th>Tier</th><th>Contact</th><th>Joined</th></tr>
+      </thead>
+      <tbody id="waiting-body"></tbody>
+    </table>
+  </section>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
