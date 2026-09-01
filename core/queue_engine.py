@@ -1,11 +1,11 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from core.interleave import next_subqueue, parse_ratio
-from db.models import QueueSession, Token
+from db.models import Payment, QueueSession, ServiceTimeSample, StaffAccount, Token
 
 
 class QueueEmptyError(Exception):
@@ -16,6 +16,18 @@ class QueueEmptyError(Exception):
 
 class InvalidTransitionError(Exception):
     pass
+
+
+class SessionClosedError(Exception):
+    def __init__(self, clinic_id: uuid.UUID):
+        super().__init__(f"Clinic {clinic_id}'s queue is not currently accepting new tokens")
+        self.clinic_id = clinic_id
+
+
+class NoDoctorConfiguredError(Exception):
+    def __init__(self, clinic_id: uuid.UUID):
+        super().__init__(f"Clinic {clinic_id} has no doctor account configured")
+        self.clinic_id = clinic_id
 
 
 def _now():
@@ -123,3 +135,101 @@ def trigger_emergency_override(db: Session, session_id: uuid.UUID, patient_conta
     db.commit()
     db.refresh(token)
     return token
+
+
+def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSession:
+    """Resolve today's queue session for a clinic, creating it on first use (v1: single doctor, one session/day)."""
+    session = db.execute(
+        select(QueueSession).where(
+            QueueSession.clinic_id == clinic_id,
+            QueueSession.session_date == date.today(),
+        )
+    ).scalars().first()
+    if session is not None:
+        return session
+
+    doctor = db.execute(
+        select(StaffAccount).where(StaffAccount.clinic_id == clinic_id, StaffAccount.role == "doctor")
+    ).scalars().first()
+    if doctor is None:
+        raise NoDoctorConfiguredError(clinic_id)
+
+    session = QueueSession(clinic_id=clinic_id, doctor_id=doctor.id, session_date=date.today())
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def join_queue(db: Session, session: QueueSession, patient_contact: str, tier: str) -> Token:
+    if session.status == "closed":
+        raise SessionClosedError(session.clinic_id)
+    token = Token(session_id=session.id, patient_contact=patient_contact, tier=tier, status="waiting")
+    db.add(token)
+    db.commit()
+    db.refresh(token)
+    return token
+
+
+def cancel_token(db: Session, token_id: uuid.UUID) -> Token:
+    token = db.execute(select(Token).where(Token.id == token_id).with_for_update()).scalar_one()
+    if token.status not in ("waiting", "called"):
+        raise InvalidTransitionError(f"Token {token_id} cannot be cancelled from status '{token.status}'")
+    token.status = "cancelled"
+    db.commit()
+    return token
+
+
+def mark_served(db: Session, token_id: uuid.UUID) -> Token:
+    token = db.execute(select(Token).where(Token.id == token_id).with_for_update()).scalar_one()
+    if token.status != "called":
+        raise InvalidTransitionError(f"Token {token_id} is not in 'called' state")
+    token.status = "served"
+    token.served_at = _now()
+    db.add(ServiceTimeSample(
+        session_id=token.session_id,
+        token_id=token.id,
+        duration_seconds=max(1, int((token.served_at - token.called_at).total_seconds())),
+    ))
+    db.commit()
+    return token
+
+
+def mark_paid(db: Session, token_id: uuid.UUID, collected_by: uuid.UUID, fee_amount_paise: int) -> Payment:
+    payment = db.get(Payment, token_id)
+    if payment is None:
+        payment = Payment(token_id=token_id, fee_amount_paise=fee_amount_paise)
+        db.add(payment)
+    payment.paid = True
+    payment.collected_by = collected_by
+    payment.collected_at = _now()
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
+def pause_session(db: Session, session_id: uuid.UUID) -> QueueSession:
+    session = db.execute(select(QueueSession).where(QueueSession.id == session_id).with_for_update()).scalar_one()
+    session.status = "paused"
+    db.commit()
+    return session
+
+
+def resume_session(db: Session, session_id: uuid.UUID) -> QueueSession:
+    session = db.execute(select(QueueSession).where(QueueSession.id == session_id).with_for_update()).scalar_one()
+    session.status = "active"
+    db.commit()
+    return session
+
+
+def position_in_queue(db: Session, token: Token) -> int:
+    """1-indexed position among waiting tokens of the same tier, ordered by join order."""
+    ahead = db.execute(
+        select(func.count()).select_from(Token).where(
+            Token.session_id == token.session_id,
+            Token.tier == token.tier,
+            Token.status == "waiting",
+            Token.sequence_no < token.sequence_no,
+        )
+    ).scalar_one()
+    return ahead + 1
