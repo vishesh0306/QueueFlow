@@ -27,6 +27,27 @@ def _make_token(db, patient_email=None):
     return token
 
 
+def _make_email_token(db):
+    clinic = Clinic(name="Notify Test Clinic")
+    db.add(clinic)
+    db.flush()
+    doctor = StaffAccount(
+        clinic_id=clinic.id, name="Dr. Notify", role="doctor", contact="doc2@notify.local", password_hash="x"
+    )
+    db.add(doctor)
+    db.flush()
+    session = QueueSession(clinic_id=clinic.id, doctor_id=doctor.id, session_date=date.today())
+    db.add(session)
+    db.flush()
+    token = Token(
+        session_id=session.id, patient_contact="email:patient@example.com", patient_email=None,
+        tier="standard", display_number="S-2",
+    )
+    db.add(token)
+    db.commit()
+    return token
+
+
 def _job(token, patient_email=None):
     return {
         "token_id": str(token.id),
@@ -105,3 +126,43 @@ def test_no_email_on_file_skips_fallback_entirely(mock_telegram, mock_email, moc
     assert len(logs) == 1
     assert logs[0].channel == "telegram"
     assert logs[0].status == "failed"
+
+
+@patch("notifications.service.time.sleep")
+@patch("notifications.service.email_client.send")
+@patch("notifications.service.telegram_client.send")
+def test_email_primary_contact_skips_telegram_entirely(mock_telegram, mock_email, mock_sleep, db):
+    """A patient who chose email as their contact channel should go straight there --
+    no pointless Telegram attempts (and the ~6s of backoff that come with them) against
+    a contact that was never a Telegram ID, and no requirement to also separately fill
+    in patient_email just to receive anything at all."""
+    token = _make_email_token(db)
+    mock_email.return_value = SendResult(ok=True)
+
+    process_job(db, _job(token, patient_email=None))
+
+    mock_telegram.assert_not_called()
+    mock_sleep.assert_not_called()
+    mock_email.assert_called_once_with("patient@example.com", "Notify Test Clinic: it's your turn now! (token S-2)")
+
+    logs = db.query(NotificationLog).filter_by(token_id=token.id).all()
+    assert len(logs) == 1
+    assert logs[0].channel == "email"
+    assert logs[0].status == "sent"
+
+
+@patch("notifications.service.time.sleep")
+@patch("notifications.service.email_client.send")
+@patch("notifications.service.telegram_client.send")
+def test_email_primary_contact_failure_is_logged_without_a_telegram_row(mock_telegram, mock_email, mock_sleep, db):
+    token = _make_email_token(db)
+    mock_email.return_value = SendResult(ok=False, error="smtp down")
+
+    process_job(db, _job(token, patient_email=None))
+
+    mock_telegram.assert_not_called()
+    logs = db.query(NotificationLog).filter_by(token_id=token.id).all()
+    assert len(logs) == 1
+    assert logs[0].channel == "email"
+    assert logs[0].status == "failed"
+    assert logs[0].last_error == "smtp down"

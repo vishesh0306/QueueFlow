@@ -60,13 +60,37 @@ def _create_log(db: Session, token_id: uuid.UUID, channel: str) -> NotificationL
     return log
 
 
+def _send_email(db: Session, job: dict, message: str, address: str) -> None:
+    email_log = _create_log(db, job["token_id"], channel="email")
+    result = email_client.send(address, message)
+    email_log.status = "sent" if result.ok else "failed"
+    email_log.attempt_count = 1
+    email_log.sent_at = utcnow() if result.ok else None
+    email_log.last_error = None if result.ok else result.error
+    db.commit()
+    if result.ok:
+        logger.info("Email sent for token %s", job["token_id"])
+    else:
+        logger.warning("Email failed for token %s: %s", job["token_id"], result.error)
+
+
 def process_job(db: Session, job: dict) -> None:
     message = render_message(job)
+    patient_contact = job["patient_contact"]
+
+    # The patient chose email as their contact channel -- go straight there, using
+    # their own contact value. Trying Telegram first (and failing 3 times, with
+    # backoff) against a contact that was never a Telegram ID would just waste
+    # ~6 seconds before reaching a fallback most patients never even provided.
+    if patient_contact.startswith("email:"):
+        _send_email(db, job, message, patient_contact.removeprefix("email:"))
+        return
+
     log = _create_log(db, job["token_id"], channel="telegram")
 
     result = None
     for attempt in range(1, MAX_TELEGRAM_ATTEMPTS + 1):
-        result = telegram_client.send(job["patient_contact"], message)
+        result = telegram_client.send(patient_contact, message)
         if result.ok:
             log.status = "sent"
             log.attempt_count = attempt
@@ -87,20 +111,10 @@ def process_job(db: Session, job: dict) -> None:
     )
 
     # Fallback channel — only reached if Telegram truly exhausted its attempts,
-    # and only if the patient actually left an email on file.
+    # and only if the patient actually left a separate backup email on file.
     patient_email = job.get("patient_email")
     if not patient_email:
         logger.warning("No email on file for token %s, notification undelivered", job["token_id"])
         return
 
-    email_log = _create_log(db, job["token_id"], channel="email")
-    email_result = email_client.send(patient_email, message)
-    email_log.status = "sent" if email_result.ok else "failed"
-    email_log.attempt_count = 1
-    email_log.sent_at = utcnow() if email_result.ok else None
-    email_log.last_error = None if email_result.ok else email_result.error
-    db.commit()
-    if email_result.ok:
-        logger.info("Email fallback sent for token %s", job["token_id"])
-    else:
-        logger.warning("Email fallback also failed for token %s: %s", job["token_id"], email_result.error)
+    _send_email(db, job, message, patient_email)
