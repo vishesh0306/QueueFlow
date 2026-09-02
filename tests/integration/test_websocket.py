@@ -96,6 +96,22 @@ def test_no_show_swap_broadcasts_updated_status(client, db):
         assert message["position"] is None
 
 
+def test_walk_in_broadcasts_to_connected_clinic_channel(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+
+    with client.websocket_connect(f"/ws/queue/{clinic.id}") as ws:
+        resp = client.post(
+            "/staff/queue/walk-in",
+            json={"patient_contact": {"type": "email", "value": "walkin@b.com"}, "tier": "standard"},
+            headers=_auth(staff_token),
+        )
+        assert resp.status_code == 201
+
+        message = ws.receive_json()
+        assert message["event"] == "queue_updated"
+
+
 def test_pause_and_resume_broadcast_live_to_a_waiting_patient(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")

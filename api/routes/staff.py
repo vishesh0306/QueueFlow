@@ -204,17 +204,20 @@ def mark_paid(token_id: uuid.UUID, body: MarkPaidRequest, db: Session = Depends(
 
 
 @router.post("/staff/queue/walk-in", status_code=201)
-def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
-            claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
-    session = _resolve_session(db, claims.clinic_id)
+async def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
+                   claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
     try:
-        token = token_service.join_queue(
-            db, session, body.patient_contact.as_column_value(), body.tier, body.patient_email
+        token = await run_in_threadpool(
+            token_service.join_queue, db, session, body.patient_contact.as_column_value(), body.tier,
+            body.patient_email,
         )
     except SessionClosedError:
         raise APIError(409, "SESSION_CLOSED", "This clinic's queue is not currently accepting new tokens.")
     except DuplicateBookingError:
         raise APIError(409, "ALREADY_IN_QUEUE", "This contact already has an active token in today's queue.")
+
+    await manager.broadcast_queue_updated(claims.clinic_id, session.id)
 
     return {"token_id": token.id, "display_number": token.display_number, "tier": token.tier, "status": token.status}
 
