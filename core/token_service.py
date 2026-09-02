@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from core.clock import utcnow
-from core.exceptions import InvalidTransitionError, SessionClosedError
+from core.exceptions import DuplicateBookingError, InvalidTransitionError, SessionClosedError
 from core.session_service import next_display_number
 from db.models import Payment, QueueSession, ServiceTimeSample, Token
 
@@ -16,6 +16,16 @@ def join_queue(db: Session, session: QueueSession, patient_contact: str, tier: s
     ).scalar_one()
     if locked_session.status == "closed":
         raise SessionClosedError(locked_session.clinic_id)
+
+    existing = db.execute(
+        select(Token).where(
+            Token.session_id == locked_session.id,
+            Token.patient_contact == patient_contact,
+            Token.status.in_(("waiting", "called")),
+        )
+    ).scalars().first()
+    if existing is not None:
+        raise DuplicateBookingError(locked_session.id, patient_contact)
 
     token = Token(
         session_id=locked_session.id,

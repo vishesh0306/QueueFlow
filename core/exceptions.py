@@ -43,3 +43,15 @@ class PatientAlreadyCalledError(Exception):
         super().__init__(f"Session {session_id} already has an unresolved called token {called_token_id}")
         self.session_id = session_id
         self.called_token_id = called_token_id
+
+
+class DuplicateBookingError(Exception):
+    """Raised when a contact tries to join a session it already has an active (waiting
+    or called) token in. There's no real patient identity in v1 -- patient_contact is
+    the closest proxy to "the same person" -- so this is a same-string match, not a
+    guaranteed same-person one."""
+
+    def __init__(self, session_id: uuid.UUID, patient_contact: str):
+        super().__init__(f"{patient_contact} already has an active token in session {session_id}")
+        self.session_id = session_id
+        self.patient_contact = patient_contact

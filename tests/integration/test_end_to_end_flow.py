@@ -42,6 +42,18 @@ def test_staff_queue_list_reflects_called_and_waiting_tokens(client, db):
     assert [t["token_id"] for t in queue["waiting"]] == [ids[1]]
 
 
+def test_join_rejects_a_duplicate_active_booking(client, db):
+    clinic, _doctor = _make_clinic_with_doctor(db)
+    body = {"patient_contact": {"type": "email", "value": "dup@test.com"}, "tier": "standard"}
+
+    first = client.post(f"/clinics/{clinic.id}/queue/join", json=body)
+    assert first.status_code == 201
+
+    second = client.post(f"/clinics/{clinic.id}/queue/join", json=body)
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "ALREADY_IN_QUEUE"
+
+
 def test_call_next_returns_queue_paused_when_paused(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")

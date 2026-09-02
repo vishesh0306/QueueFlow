@@ -8,6 +8,19 @@ const state = {
 
 let ws = null;
 
+// ---- Security -------------------------------------------------------------
+
+// patient_contact (and, less critically, display_number) come straight from
+// patient-controlled input -- a patient could join with a value like
+// "<img src=x onerror=...>" and have it execute in an authenticated staff
+// session the moment the queue renders. Route every such value through this
+// before interpolating it into an innerHTML template string.
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
 // ---- API helper -----------------------------------------------------------
 
 async function apiFetch(path, options = {}) {
@@ -101,8 +114,8 @@ function tokenRow(token, actionsHtml) {
   div.className = "token-row";
   div.innerHTML = `
     <div class="info">
-      <span class="display-number">${token.display_number || token.token_id.slice(0, 8)}</span>
-      <span class="meta">${token.tier}${token.emergency_override ? " · EMERGENCY" : ""} · ${token.patient_contact}</span>
+      <span class="display-number">${escapeHtml(token.display_number) || escapeHtml(token.token_id.slice(0, 8))}</span>
+      <span class="meta">${escapeHtml(token.tier)}${token.emergency_override ? " · EMERGENCY" : ""} · ${escapeHtml(token.patient_contact)}</span>
     </div>
     <div class="btn-group">${actionsHtml}</div>
   `;
@@ -149,9 +162,9 @@ function renderWaiting(tokens) {
     const joined = new Date(token.joined_at).toLocaleTimeString();
     tr.innerHTML = `
       <td>${index + 1}</td>
-      <td>${token.display_number || "-"}</td>
-      <td>${token.tier}${token.emergency_override ? " (EMERGENCY)" : ""}</td>
-      <td>${token.patient_contact}</td>
+      <td>${escapeHtml(token.display_number) || "-"}</td>
+      <td>${escapeHtml(token.tier)}${token.emergency_override ? " (EMERGENCY)" : ""}</td>
+      <td>${escapeHtml(token.patient_contact)}</td>
       <td>${joined}</td>
     `;
     body.appendChild(tr);

@@ -9,7 +9,7 @@ from api.deps import APIError
 from api.schemas import JoinQueueRequest, JoinQueueResponse, TokenStatusResponse
 from core import session_service, token_service
 from core.estimator import estimated_wait_seconds
-from core.exceptions import InvalidTransitionError, NoDoctorConfiguredError, SessionClosedError
+from core.exceptions import DuplicateBookingError, InvalidTransitionError, NoDoctorConfiguredError, SessionClosedError
 from db.models import Clinic, QueueSession, Token
 from db.session import get_db
 from ws.gateway import manager
@@ -33,6 +33,8 @@ async def join_queue(clinic_id: uuid.UUID, body: JoinQueueRequest, db: Session =
         raise APIError(409, "SESSION_CLOSED", "This clinic's queue is not currently accepting new tokens.")
     except NoDoctorConfiguredError:
         raise APIError(409, "SESSION_CLOSED", "This clinic has no doctor configured yet.")
+    except DuplicateBookingError:
+        raise APIError(409, "ALREADY_IN_QUEUE", "This contact already has an active token in today's queue.")
 
     position = token_service.position_in_queue(db, token)
     fee_due = clinic.priority_fee_paise if token.tier == "priority" else 0

@@ -22,6 +22,7 @@ from api.schemas import (
 )
 from core import queue_engine, session_service, token_service
 from core.exceptions import (
+    DuplicateBookingError,
     InvalidTransitionError,
     NoDoctorConfiguredError,
     PatientAlreadyCalledError,
@@ -208,6 +209,8 @@ def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
         )
     except SessionClosedError:
         raise APIError(409, "SESSION_CLOSED", "This clinic's queue is not currently accepting new tokens.")
+    except DuplicateBookingError:
+        raise APIError(409, "ALREADY_IN_QUEUE", "This contact already has an active token in today's queue.")
 
     return {"token_id": token.id, "display_number": token.display_number, "tier": token.tier, "status": token.status}
 
