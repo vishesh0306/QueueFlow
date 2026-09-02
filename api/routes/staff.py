@@ -19,7 +19,7 @@ from api.schemas import (
     WalkInRequest,
 )
 from core import queue_engine, session_service, token_service
-from core.exceptions import InvalidTransitionError, QueueEmptyError, SessionClosedError
+from core.exceptions import InvalidTransitionError, QueueEmptyError, SessionClosedError, SessionNotActiveError
 from db.models import QueueSession, StaffAccount, Token
 from db.session import get_db
 from ws.gateway import manager
@@ -84,6 +84,8 @@ async def call_next(db: Session = Depends(get_db), claims: JWTClaims = Depends(r
         token = await run_in_threadpool(queue_engine.call_next, db, session.id)
     except QueueEmptyError:
         raise APIError(409, "QUEUE_EMPTY", "No patients are currently waiting.")
+    except SessionNotActiveError as exc:
+        raise APIError(409, "QUEUE_PAUSED", f"The queue is currently {exc.status}, not accepting call-next.")
 
     await manager.broadcast_queue_updated(claims.clinic_id, session.id)
 

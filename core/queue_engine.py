@@ -4,7 +4,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from core.clock import utcnow
-from core.exceptions import InvalidTransitionError, QueueEmptyError
+from core.exceptions import InvalidTransitionError, QueueEmptyError, SessionNotActiveError
 from core.interleave import next_subqueue, parse_ratio
 from core.session_service import next_display_number
 from db.models import QueueSession, Token
@@ -59,11 +59,15 @@ def call_next(db: Session, session_id: uuid.UUID) -> Token:
         select(QueueSession).where(QueueSession.id == session_id).with_for_update()
     ).scalar_one()
 
-    # 1. Emergency override always wins, regardless of interleave state.
+    # 1. Emergency override always wins, regardless of interleave state OR pause —
+    #    a genuine urgent case shouldn't have to wait on an administrative pause.
     token = _next_waiting_token(db, session_id, emergency_override=True)
 
-    # 2. Otherwise pick the sub-queue the interleave policy points to.
+    # 2. Otherwise pick the sub-queue the interleave policy points to — but only if
+    #    the session is actually active; a pause should stop ordinary calling.
     if token is None:
+        if session.status != "active":
+            raise SessionNotActiveError(session_id, session.status)
         ratio = parse_ratio(session.clinic.standard_priority_ratio)
         preferred_tier = next_subqueue(session.call_counter, ratio)
         token = _next_waiting_token(db, session_id, tier=preferred_tier)

@@ -42,6 +42,28 @@ def test_staff_queue_list_reflects_called_and_waiting_tokens(client, db):
     assert [t["token_id"] for t in queue["waiting"]] == [ids[1]]
 
 
+def test_call_next_returns_queue_paused_when_paused(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+
+    pause_resp = client.post("/staff/queue/pause", headers=_auth(staff_token))
+    assert pause_resp.json()["status"] == "paused"
+
+    call_resp = client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    assert call_resp.status_code == 409
+    assert call_resp.json()["error"]["code"] == "QUEUE_PAUSED"
+
+    resume_resp = client.post("/staff/queue/resume", headers=_auth(staff_token))
+    assert resume_resp.json()["status"] == "active"
+
+    call_resp_after_resume = client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    assert call_resp_after_resume.status_code == 200
+
+
 def test_patient_join_then_staff_calls_and_serves(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")
