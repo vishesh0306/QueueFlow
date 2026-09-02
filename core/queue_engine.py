@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.clock import utcnow
@@ -12,6 +12,7 @@ from core.exceptions import (
     SessionNotActiveError,
 )
 from core.interleave import next_subqueue, parse_ratio
+from core.ranking import next_back_rank, rank_after
 from core.session_service import next_display_number
 from db.models import QueueSession, Token
 from notifications.service import enqueue_notification
@@ -37,39 +38,6 @@ def _next_waiting_token(db: Session, session_id: uuid.UUID, *, tier: str | None 
         stmt = stmt.where(Token.emergency_override == emergency_override)
     stmt = stmt.order_by(Token.sequence_no).with_for_update(skip_locked=True).limit(1)
     return db.execute(stmt).scalars().first()
-
-
-def _sequence_after(db: Session, partner: Token) -> int:
-    """Make room for a value immediately after `partner`.
-
-    sequence_no is a single global ordering key shared by the whole tokens table, not
-    one scoped per tier or per status -- so the shift must consider every row in the
-    session, not just other currently-waiting same-tier ones. Restricting it to
-    tier+waiting (as this used to) left already-called/served rows invisible to the
-    shift: a later swap could silently reassign a value a served row already froze
-    on, producing duplicate sequence_no values that corrupted no live ordering query
-    directly (those all filter by tier already) but broke the column's invariant and
-    could still tie-break unpredictably between rows that do share a tier.
-
-    Shifting the whole session's rows uniformly by +1 preserves every row's relative
-    order to every other row, called/served/cancelled included, so this is always
-    safe -- it just costs a few more touched rows than the old narrower shift.
-    """
-    db.execute(
-        update(Token)
-        .where(
-            Token.session_id == partner.session_id,
-            Token.sequence_no > partner.sequence_no,
-        )
-        .values(sequence_no=Token.sequence_no + 1)
-    )
-    return partner.sequence_no + 1
-
-
-def _sequence_for_back_of_queue(db: Session) -> int:
-    """A fresh value from the tokens.sequence_no identity sequence — guaranteed past every existing row."""
-    seq_name = db.execute(text("SELECT pg_get_serial_sequence('tokens', 'sequence_no')")).scalar_one()
-    return db.execute(text(f"SELECT nextval('{seq_name}')")).scalar_one()
 
 
 def call_next(db: Session, session_id: uuid.UUID) -> Token:
@@ -152,7 +120,7 @@ def handle_no_show(db: Session, token_id: uuid.UUID) -> dict:
         if partner is not None:
             token.status = "waiting"
             token.swap_used = True
-            token.sequence_no = _sequence_after(db, partner)
+            token.sequence_no = rank_after(db, token.session_id, partner.sequence_no)
             partner.status = "called"
             partner.called_at = utcnow()
             db.commit()
@@ -162,7 +130,7 @@ def handle_no_show(db: Session, token_id: uuid.UUID) -> dict:
     # No swap partner available, or swap already used once for this token —
     # cap reached, send to the back rather than cascading further.
     token.status = "waiting"
-    token.sequence_no = _sequence_for_back_of_queue(db)
+    token.sequence_no = next_back_rank(db)
     db.commit()
     return {"action": "requeued", "new_called_token_id": None}
 

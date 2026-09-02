@@ -1,20 +1,22 @@
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
-    Identity,
     Index,
     Integer,
+    Numeric,
+    Sequence,
     SmallInteger,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -22,6 +24,13 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
+
+
+# Standalone sequence backing Token.sequence_no's fractional-rank DEFAULT (see
+# core/ranking.py) -- not tied to any single column via Identity, so it must be
+# registered on the metadata explicitly for Base.metadata.create_all() (used by the
+# test suite) to create it before the table that references it by name.
+tokens_sequence_no_seed = Sequence("tokens_sequence_no_seed", metadata=Base.metadata)
 
 
 StaffRole = ENUM("receptionist", "doctor", "admin", name="staff_role")
@@ -122,7 +131,13 @@ class Token(Base):
     tier: Mapped[str] = mapped_column(TokenTier, nullable=False, default="standard")
     emergency_override: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(TokenStatus, nullable=False, default="waiting")
-    sequence_no: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
+    # Fractional-rank ordering key, not a tight sequential integer -- see core/ranking.py.
+    # New rows get their rank from tokens_sequence_no_seed (this DEFAULT), spaced by
+    # RANK_GAP, so appending is O(1) and collision-free under concurrent joins.
+    sequence_no: Mapped[Decimal] = mapped_column(
+        Numeric, nullable=False,
+        server_default=text("(nextval('tokens_sequence_no_seed') * 1000)"),
+    )
     swap_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     no_show_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     display_number: Mapped[str | None] = mapped_column(String(10), nullable=True)
