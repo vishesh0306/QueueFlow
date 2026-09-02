@@ -46,6 +46,7 @@ async def join_queue(clinic_id: uuid.UUID, body: JoinQueueRequest, db: Session =
         position=position,
         estimated_wait_seconds=estimated_wait_seconds(db, session.id, position),
         fee_due_paise=fee_due,
+        session_status=session.status,
     )
 
 
@@ -73,7 +74,9 @@ def token_status(token_id: uuid.UUID, db: Session = Depends(get_db)):
         position = None
         eta = None
 
+    session = db.get(QueueSession, token.session_id)
+
     return TokenStatusResponse(
         token_id=token.id, display_number=token.display_number, tier=token.tier, status=token.status,
-        position=position, estimated_wait_seconds=eta,
+        position=position, estimated_wait_seconds=eta, session_status=session.status,
     )

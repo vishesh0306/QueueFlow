@@ -94,3 +94,24 @@ def test_no_show_swap_broadcasts_updated_status(client, db):
         assert message["your_token_id"] == second_id
         assert message["status"] == "called"  # swapped in, now called
         assert message["position"] is None
+
+
+def test_pause_and_resume_broadcast_live_to_a_waiting_patient(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    token_id = _join(client, clinic.id, "a@b.com")
+
+    with client.websocket_connect(f"/ws/queue/{clinic.id}?token_id={token_id}") as ws:
+        pause_resp = client.post("/staff/queue/pause", headers=_auth(staff_token))
+        assert pause_resp.status_code == 200
+
+        message = ws.receive_json()
+        assert message["session_status"] == "paused"
+        assert message["your_token_id"] == token_id  # still personalized, patient didn't lose their place
+        assert message["status"] == "waiting"
+
+        resume_resp = client.post("/staff/queue/resume", headers=_auth(staff_token))
+        assert resume_resp.status_code == 200
+
+        message = ws.receive_json()
+        assert message["session_status"] == "active"

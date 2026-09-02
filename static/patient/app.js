@@ -68,6 +68,7 @@ function renderStatus(data) {
   document.getElementById("status-line").textContent = data.status;
 
   const calledBanner = document.getElementById("called-banner");
+  const pausedBanner = document.getElementById("paused-banner");
   const positionBlock = document.getElementById("position-block");
 
   if (data.status === "called") {
@@ -79,6 +80,11 @@ function renderStatus(data) {
     document.getElementById("position-value").textContent = data.position !== null ? data.position - 1 : "—";
     document.getElementById("eta-value").textContent = formatEta(data.estimated_wait_seconds);
   }
+
+  // Only meaningful while still waiting -- once called, the queue being paused
+  // elsewhere doesn't change that this patient's turn has already arrived.
+  const isPaused = data.session_status === "paused" && data.status === "waiting";
+  pausedBanner.classList.toggle("hidden", !isPaused);
 
   if (data.status === "served" || data.status === "cancelled") {
     clearSession();

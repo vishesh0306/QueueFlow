@@ -8,6 +8,7 @@
   --accent-dark: #1d4ed8;
   --danger: #dc2626;
   --success: #16a34a;
+  --warn: #d97706;
 }
 
 * { box-sizing: border-box; }
@@ -122,6 +123,16 @@ button.secondary:hover { background: #fef2f2; }
   padding: 12px;
   border-radius: 8px;
   font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.paused-banner {
+  background: #fef3c7;
+  color: var(--warn);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
   font-weight: 600;
   margin-bottom: 16px;
 }

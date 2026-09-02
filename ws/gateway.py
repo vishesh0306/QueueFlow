@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.estimator import estimated_wait_seconds
 from core.token_service import position_in_queue
-from db.models import Token
+from db.models import QueueSession, Token
 from db.session import SessionLocal
 
 
@@ -39,8 +39,15 @@ class ConnectionManager:
         db = self._session_factory()
         dead: list[WebSocket] = []
         try:
+            session = db.get(QueueSession, session_id)
+            session_status = session.status if session is not None else None
+
             for websocket, token_id in list(connections.items()):
-                payload: dict = {"event": "queue_updated", "session_id": str(session_id)}
+                payload: dict = {
+                    "event": "queue_updated",
+                    "session_id": str(session_id),
+                    "session_status": session_status,
+                }
 
                 if token_id is not None:
                     token = db.get(Token, token_id)

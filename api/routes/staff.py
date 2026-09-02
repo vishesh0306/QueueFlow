@@ -210,14 +210,16 @@ def emergency_override(body: EmergencyOverrideRequest, db: Session = Depends(get
 
 
 @router.post("/staff/queue/pause")
-def pause(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
-    session = _resolve_session(db, claims.clinic_id)
-    session = session_service.pause_session(db, session.id)
+async def pause(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
+    session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
+    session = await run_in_threadpool(session_service.pause_session, db, session.id)
+    await manager.broadcast_queue_updated(claims.clinic_id, session.id)
     return {"session_id": session.id, "status": session.status}
 
 
 @router.post("/staff/queue/resume")
-def resume(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
-    session = _resolve_session(db, claims.clinic_id)
-    session = session_service.resume_session(db, session.id)
+async def resume(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
+    session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
+    session = await run_in_threadpool(session_service.resume_session, db, session.id)
+    await manager.broadcast_queue_updated(claims.clinic_id, session.id)
     return {"session_id": session.id, "status": session.status}

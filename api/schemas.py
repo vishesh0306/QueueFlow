@@ -26,6 +26,7 @@ class JoinQueueResponse(BaseModel):
     position: int
     estimated_wait_seconds: int
     fee_due_paise: int
+    session_status: str
 
 
 class TokenStatusResponse(BaseModel):
@@ -35,6 +36,7 @@ class TokenStatusResponse(BaseModel):
     status: str
     position: int | None
     estimated_wait_seconds: int | None
+    session_status: str
 
 
 class CallNextResponse(BaseModel):
