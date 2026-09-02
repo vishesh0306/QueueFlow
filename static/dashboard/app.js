@@ -154,18 +154,20 @@ function renderWaiting(tokens) {
   const body = document.getElementById("waiting-body");
   body.innerHTML = "";
   if (tokens.length === 0) {
-    body.innerHTML = '<tr><td colspan="5" class="empty-state">Queue is empty.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty-state">Queue is empty.</td></tr>';
     return;
   }
   tokens.forEach((token, index) => {
     const tr = document.createElement("tr");
     const joined = new Date(token.joined_at).toLocaleTimeString();
+    const canUpgrade = token.tier === "standard" && !token.emergency_override;
     tr.innerHTML = `
       <td>${index + 1}</td>
       <td>${escapeHtml(token.display_number) || "-"}</td>
       <td>${escapeHtml(token.tier)}${token.emergency_override ? " (EMERGENCY)" : ""}</td>
       <td>${escapeHtml(token.patient_contact)}</td>
       <td>${joined}</td>
+      <td>${canUpgrade ? `<button data-action="change-tier" data-id="${token.token_id}" class="secondary">Make priority</button>` : ""}</td>
     `;
     body.appendChild(tr);
   });
@@ -220,6 +222,11 @@ async function handleTokenAction(action, tokenId) {
         method: "POST",
         body: JSON.stringify({ fee_amount_paise: parseInt(amount, 10) || 0 }),
       });
+    } else if (action === "change-tier") {
+      await apiFetch(`/staff/queue/tokens/${tokenId}/change-tier`, {
+        method: "POST",
+        body: JSON.stringify({ tier: "priority" }),
+      });
     }
     refreshQueue();
   } catch (err) {
@@ -273,6 +280,12 @@ document.getElementById("pause-resume-btn").addEventListener("click", (e) => {
 });
 
 document.getElementById("called-list").addEventListener("click", (e) => {
+  const action = e.target.dataset.action;
+  const id = e.target.dataset.id;
+  if (action && id) handleTokenAction(action, id);
+});
+
+document.getElementById("waiting-body").addEventListener("click", (e) => {
   const action = e.target.dataset.action;
   const id = e.target.dataset.id;
   if (action && id) handleTokenAction(action, id);

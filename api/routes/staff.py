@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from api.deps import APIError, JWTClaims, create_access_token, require_role
 from api.schemas import (
     CallNextResponse,
+    ChangeTierRequest,
     EmergencyOverrideRequest,
     LoginRequest,
     LoginResponse,
@@ -219,11 +220,33 @@ def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
 
 
 @router.post("/staff/queue/emergency-override", status_code=201)
-def emergency_override(body: EmergencyOverrideRequest, db: Session = Depends(get_db),
-                        claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
-    session = _resolve_session(db, claims.clinic_id)
-    token = queue_engine.trigger_emergency_override(db, session.id, body.patient_contact.as_column_value())
+async def emergency_override(body: EmergencyOverrideRequest, db: Session = Depends(get_db),
+                              claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
+    session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
+    try:
+        token = await run_in_threadpool(
+            queue_engine.trigger_emergency_override, db, session.id, body.patient_contact.as_column_value()
+        )
+    except DuplicateBookingError:
+        raise APIError(409, "ALREADY_IN_QUEUE", "This contact is already called; cannot escalate to emergency.")
+
+    await manager.broadcast_queue_updated(claims.clinic_id, session.id)
+
     return {"token_id": token.id, "display_number": token.display_number, "emergency_override": token.emergency_override}
+
+
+@router.post("/staff/queue/tokens/{token_id}/change-tier")
+async def change_tier(token_id: uuid.UUID, body: ChangeTierRequest, db: Session = Depends(get_db),
+                       claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    _verify_token_in_clinic(db, token_id, claims.clinic_id)
+    try:
+        token = await run_in_threadpool(token_service.change_tier, db, token_id, body.tier)
+    except InvalidTransitionError as exc:
+        raise APIError(409, "INVALID_TRANSITION", str(exc))
+
+    await manager.broadcast_queue_updated(claims.clinic_id, token.session_id)
+
+    return {"token_id": token.id, "tier": token.tier, "status": token.status}
 
 
 @router.post("/staff/queue/pause")

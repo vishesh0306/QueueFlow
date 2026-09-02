@@ -85,6 +85,10 @@ class MarkPaidRequest(BaseModel):
     fee_amount_paise: int = Field(ge=0)
 
 
+class ChangeTierRequest(BaseModel):
+    tier: Literal["standard", "priority"]
+
+
 class LoginRequest(BaseModel):
     contact: str
     password: str

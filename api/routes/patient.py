@@ -63,6 +63,27 @@ async def cancel_own_token(token_id: uuid.UUID, db: Session = Depends(get_db)):
     await manager.broadcast_queue_updated(session.clinic_id, session.id)
 
 
+@router.post("/queue/tokens/{token_id}/upgrade-to-priority")
+async def upgrade_to_priority(token_id: uuid.UUID, db: Session = Depends(get_db)):
+    try:
+        token = await run_in_threadpool(token_service.upgrade_to_priority, db, token_id)
+    except InvalidTransitionError as exc:
+        raise APIError(409, "INVALID_TRANSITION", str(exc))
+
+    session = db.get(QueueSession, token.session_id)
+    clinic = db.get(Clinic, session.clinic_id)
+    position = token_service.position_in_queue(db, token)
+
+    await manager.broadcast_queue_updated(session.clinic_id, session.id)
+
+    return {
+        "token_id": token.id,
+        "tier": token.tier,
+        "position": position,
+        "fee_due_paise": clinic.priority_fee_paise,
+    }
+
+
 @router.get("/queue/tokens/{token_id}/status", response_model=TokenStatusResponse)
 def token_status(token_id: uuid.UUID, db: Session = Depends(get_db)):
     token = db.execute(select(Token).where(Token.id == token_id)).scalar_one_or_none()

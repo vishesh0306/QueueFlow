@@ -5,7 +5,7 @@ import pytest
 
 from core.exceptions import DuplicateBookingError, InvalidTransitionError
 from core.queue_engine import call_next
-from core.token_service import cancel_token, join_queue, mark_paid, mark_served
+from core.token_service import cancel_token, change_tier, join_queue, mark_paid, mark_served, upgrade_to_priority
 from db.models import Clinic, QueueSession, StaffAccount
 
 
@@ -96,3 +96,60 @@ def test_mark_paid_succeeds_for_a_called_token(db):
 
     assert payment.paid is True
     assert payment.fee_amount_paise == 20000
+
+
+def test_change_tier_moves_a_waiting_token_between_tiers(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+
+    updated = change_tier(db, token.id, "priority")
+
+    assert updated.tier == "priority"
+
+
+def test_change_tier_rejects_a_token_that_is_not_waiting(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    call_next(db, session.id)
+
+    with pytest.raises(InvalidTransitionError):
+        change_tier(db, token.id, "priority")
+
+
+def test_upgrade_to_priority_moves_a_standard_token_to_priority(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+
+    updated = upgrade_to_priority(db, token.id)
+
+    assert updated.tier == "priority"
+
+
+def test_upgrade_to_priority_rejects_a_token_already_at_priority(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "priority")
+
+    with pytest.raises(InvalidTransitionError):
+        upgrade_to_priority(db, token.id)
+
+
+def test_upgrade_to_priority_rejects_a_token_that_is_not_waiting(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    call_next(db, session.id)
+
+    with pytest.raises(InvalidTransitionError):
+        upgrade_to_priority(db, token.id)
+
+
+def test_upgrade_to_priority_rejects_a_token_that_already_has_emergency_priority(db):
+    """A patient can self-escalate standard -> priority, but emergency status is a
+    staff clinical judgment call, not something a patient can request for themselves --
+    so a token staff already flagged emergency can't be touched by this endpoint."""
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    token.emergency_override = True
+    db.commit()
+
+    with pytest.raises(InvalidTransitionError):
+        upgrade_to_priority(db, token.id)

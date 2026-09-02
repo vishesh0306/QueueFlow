@@ -168,6 +168,78 @@ def test_mark_paid_rejects_a_cancelled_token(client, db):
     assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
 
 
+def test_staff_can_change_a_waiting_tokens_tier(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    token_id = join_resp.json()["token_id"]
+
+    resp = client.post(
+        f"/staff/queue/tokens/{token_id}/change-tier",
+        json={"tier": "priority"},
+        headers=_auth(staff_token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tier"] == "priority"
+
+
+def test_patient_can_self_upgrade_to_priority(client, db):
+    clinic, _doctor = _make_clinic_with_doctor(db)
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    token_id = join_resp.json()["token_id"]
+
+    resp = client.post(f"/queue/tokens/{token_id}/upgrade-to-priority")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tier"] == "priority"
+    assert body["fee_due_paise"] == clinic.priority_fee_paise
+
+    status_resp = client.get(f"/queue/tokens/{token_id}/status")
+    assert status_resp.json()["tier"] == "priority"
+
+
+def test_patient_cannot_self_upgrade_a_token_already_at_priority(client, db):
+    clinic, _doctor = _make_clinic_with_doctor(db)
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "priority"},
+    )
+    token_id = join_resp.json()["token_id"]
+
+    resp = client.post(f"/queue/tokens/{token_id}/upgrade-to-priority")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
+
+
+def test_emergency_override_on_an_already_queued_patient_does_not_orphan_their_token(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    token_id = join_resp.json()["token_id"]
+
+    override_resp = client.post(
+        "/staff/queue/emergency-override",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}},
+        headers=_auth(staff_token),
+    )
+    assert override_resp.status_code == 201
+    assert override_resp.json()["token_id"] == token_id
+
+    queue = client.get("/staff/queue", headers=_auth(staff_token)).json()
+    matching = [t for t in queue["waiting"] if t["patient_contact"] == "email:a@b.com"]
+    assert len(matching) == 1
+    assert matching[0]["emergency_override"] is True
+
+
 def test_no_show_swap_via_api(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")

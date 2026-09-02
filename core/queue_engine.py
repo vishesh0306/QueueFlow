@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from core.clock import utcnow
 from core.exceptions import (
+    DuplicateBookingError,
     InvalidTransitionError,
     PatientAlreadyCalledError,
     QueueEmptyError,
@@ -154,8 +155,36 @@ def handle_no_show(db: Session, token_id: uuid.UUID) -> dict:
 
 
 def trigger_emergency_override(db: Session, session_id: uuid.UUID, patient_contact: str) -> Token:
-    """Doctor/admin-only: insert a walk-in that bypasses tier/position entirely (HLD §8)."""
+    """Doctor/admin-only: escalate to emergency, bypassing tier/position entirely (HLD §8).
+
+    If the contact already has a waiting token in this session, escalate it in place
+    instead of creating a second one. call_next()'s emergency pick only ever looks at
+    the emergency_override flag (see _next_waiting_token above) -- it never re-checks
+    whether the SAME patient has an older, non-emergency token still sitting in the
+    queue. Without this, that older token would never be called (nothing resolves it)
+    and never be cancelled (nothing knows to), so it sits there as a permanent orphan
+    that skews the waiting list and blocks the same contact from rejoining later.
+    """
     session = db.execute(select(QueueSession).where(QueueSession.id == session_id).with_for_update()).scalar_one()
+
+    existing = db.execute(
+        select(Token)
+        .where(
+            Token.session_id == session_id,
+            Token.patient_contact == patient_contact,
+            Token.status.in_(("waiting", "called")),
+        )
+        .with_for_update()
+    ).scalars().first()
+
+    if existing is not None:
+        if existing.status == "called":
+            raise DuplicateBookingError(session_id, patient_contact)
+        existing.emergency_override = True
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     token = Token(
         session_id=session_id,
         patient_contact=patient_contact,

@@ -2,6 +2,11 @@ const API_BASE = "";
 const SESSION_KEY = "qf_patient_session"; // {clinicId, tokenId} -- one active visit at a time (v1: no patient identity beyond a visit)
 
 let ws = null;
+// The WebSocket's queue_updated payload doesn't carry tier (see ws/gateway.py), so
+// tracking it here from whichever response last included it (join/status/upgrade) is
+// what decides whether the upgrade button shows -- reading it off the WS payload
+// directly would make the button flicker hidden on every live update.
+let currentTier = null;
 
 function urlClinicId() {
   return new URLSearchParams(window.location.search).get("clinic");
@@ -86,6 +91,10 @@ function renderStatus(data) {
   const isPaused = data.session_status === "paused" && data.status === "waiting";
   pausedBanner.classList.toggle("hidden", !isPaused);
 
+  if (data.tier !== undefined) currentTier = data.tier;
+  const upgradeBtn = document.getElementById("upgrade-btn");
+  upgradeBtn.classList.toggle("hidden", !(data.status === "waiting" && currentTier === "standard"));
+
   if (data.status === "served" || data.status === "cancelled") {
     clearSession();
     showJoinScreen();
@@ -160,6 +169,23 @@ document.getElementById("join-form").addEventListener("submit", async (e) => {
     showStatusScreen();
     renderStatus({ ...data, your_token_id: data.token_id, status: "waiting" });
     connectWebSocket(clinicId, data.token_id);
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
+
+// ---- Upgrade to priority --------------------------------------------------
+
+document.getElementById("upgrade-btn").addEventListener("click", async () => {
+  const session = loadSession();
+  if (!session) return;
+  const errorEl = document.getElementById("upgrade-error");
+  errorEl.textContent = "";
+
+  try {
+    const data = await apiFetch(`/queue/tokens/${session.tokenId}/upgrade-to-priority`, { method: "POST" });
+    currentTier = data.tier;
+    document.getElementById("upgrade-btn").classList.add("hidden");
   } catch (err) {
     errorEl.textContent = err.message;
   }

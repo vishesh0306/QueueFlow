@@ -3,7 +3,12 @@ from datetime import date
 
 import pytest
 
-from core.exceptions import InvalidTransitionError, PatientAlreadyCalledError, QueueEmptyError
+from core.exceptions import (
+    DuplicateBookingError,
+    InvalidTransitionError,
+    PatientAlreadyCalledError,
+    QueueEmptyError,
+)
 from core.queue_engine import call_next, handle_no_show, trigger_emergency_override
 from core.token_service import mark_served
 from db.models import Clinic, QueueSession, StaffAccount, Token
@@ -223,3 +228,36 @@ def test_handle_no_show_rejects_non_called_token(db):
 
     with pytest.raises(InvalidTransitionError):
         handle_no_show(db, a.id)
+
+
+def test_emergency_override_upgrades_an_existing_waiting_token_instead_of_duplicating_it(db):
+    """Escalating a patient who's already in the queue must not leave their original
+    token behind as an orphan -- it should become the (only) emergency token."""
+    session = _make_clinic_session(db)
+    original = _join(db, session, "standard", "t:patient")
+
+    escalated = trigger_emergency_override(db, session.id, "t:patient")
+
+    assert escalated.id == original.id
+    assert escalated.emergency_override is True
+
+    live_tokens = db.query(Token).filter_by(session_id=session.id, patient_contact="t:patient").all()
+    assert len(live_tokens) == 1
+
+
+def test_emergency_override_creates_a_new_token_when_patient_not_already_queued(db):
+    session = _make_clinic_session(db)
+
+    token = trigger_emergency_override(db, session.id, "t:walk-in")
+
+    assert token.emergency_override is True
+    assert token.status == "waiting"
+
+
+def test_emergency_override_rejects_escalating_a_patient_who_is_already_called(db):
+    session = _make_clinic_session(db)
+    _join(db, session, "standard", "t:patient")
+    call_next(db, session.id)
+
+    with pytest.raises(DuplicateBookingError):
+        trigger_emergency_override(db, session.id, "t:patient")

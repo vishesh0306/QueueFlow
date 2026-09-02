@@ -82,6 +82,37 @@ def mark_paid(db: Session, token_id: uuid.UUID, collected_by: uuid.UUID, fee_amo
     return payment
 
 
+def change_tier(db: Session, token_id: uuid.UUID, new_tier: str) -> Token:
+    """Staff-driven tier change (standard<->priority) for a token still waiting to be
+    called. Only the tier field moves -- sequence_no (join-order position) is untouched,
+    so the patient keeps their original place within whichever tier's FIFO order they
+    land in, and fee_due (derived from tier on read) updates automatically."""
+    token = db.execute(select(Token).where(Token.id == token_id).with_for_update()).scalar_one()
+    if token.status != "waiting":
+        raise InvalidTransitionError(f"Token {token_id} is '{token.status}', tier can only be changed while waiting")
+    token.tier = new_tier
+    db.commit()
+    db.refresh(token)
+    return token
+
+
+def upgrade_to_priority(db: Session, token_id: uuid.UUID) -> Token:
+    """Patient self-service escalation, one-directional (standard -> priority only) --
+    downgrading or self-declaring emergency status isn't something a patient can do;
+    emergency stays a staff clinical judgment call via trigger_emergency_override."""
+    token = db.execute(select(Token).where(Token.id == token_id).with_for_update()).scalar_one()
+    if token.status != "waiting":
+        raise InvalidTransitionError(f"Token {token_id} is '{token.status}', cannot upgrade tier")
+    if token.emergency_override:
+        raise InvalidTransitionError(f"Token {token_id} already has emergency priority")
+    if token.tier == "priority":
+        raise InvalidTransitionError(f"Token {token_id} is already priority tier")
+    token.tier = "priority"
+    db.commit()
+    db.refresh(token)
+    return token
+
+
 def position_in_queue(db: Session, token: Token) -> int:
     """1-indexed position among waiting tokens of the same tier, ordered by join order."""
     ahead = db.execute(
