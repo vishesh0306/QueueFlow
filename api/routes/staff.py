@@ -124,6 +124,7 @@ def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(requir
             patient_contact=t.patient_contact, emergency_override=t.emergency_override,
             joined_at=t.joined_at, called_at=t.called_at,
             paid=t.payment.paid if t.payment is not None else False,
+            fee_amount_paise=t.payment.fee_amount_paise if t.payment is not None else None,
         )
 
     waiting = [t for t in tokens if t.status == "waiting"]

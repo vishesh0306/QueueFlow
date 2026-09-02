@@ -57,6 +57,7 @@ class QueueTokenSummary(BaseModel):
     joined_at: datetime
     called_at: datetime | None
     paid: bool
+    fee_amount_paise: int | None
 
 
 class QueueListResponse(BaseModel):

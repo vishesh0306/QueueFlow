@@ -351,6 +351,10 @@ def test_staff_can_void_a_payment(client, db):
         headers=_auth(staff_token),
     )
 
+    queue_before = client.get("/staff/queue", headers=_auth(staff_token)).json()
+    assert queue_before["called"][0]["paid"] is True
+    assert queue_before["called"][0]["fee_amount_paise"] == 20000
+
     void_resp = client.post(f"/staff/queue/tokens/{token_id}/void-payment", headers=_auth(staff_token))
     assert void_resp.status_code == 200
     assert void_resp.json()["paid"] is False

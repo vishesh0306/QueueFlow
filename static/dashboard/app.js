@@ -21,6 +21,19 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+// ---- Currency ---------------------------------------------------------
+// Stored/transmitted as paise (integer, avoids float rounding) -- converted to/from
+// rupees only at this UI boundary, so staff never has to do the mental math.
+
+function paiseToRupees(paise) {
+  return (paise / 100).toFixed(2).replace(/\.00$/, "");
+}
+
+function rupeesToPaise(rupeesStr) {
+  const value = parseFloat(rupeesStr);
+  return Number.isFinite(value) ? Math.round(value * 100) : 0;
+}
+
 // ---- API helper -----------------------------------------------------------
 
 async function apiFetch(path, options = {}) {
@@ -150,7 +163,7 @@ function renderCalled(tokens) {
   }
   for (const token of tokens) {
     const paidControl = token.paid
-      ? `<span class="paid-badge">Paid ✓</span> <button data-action="void-payment" data-id="${token.token_id}" class="secondary">Void</button>`
+      ? `<span class="paid-badge">Paid ✓ ₹${paiseToRupees(token.fee_amount_paise)}</span> <button data-action="void-payment" data-id="${token.token_id}" class="secondary">Void</button>`
       : `<button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Paid</button>`;
     const row = tokenRow(token, `
       <button data-action="mark-served" data-id="${token.token_id}">Served</button>
@@ -244,11 +257,11 @@ async function handleTokenAction(action, tokenId, dataset = {}) {
     } else if (action === "mark-served") {
       await apiFetch(`/staff/queue/tokens/${tokenId}/mark-served`, { method: "POST" });
     } else if (action === "mark-paid") {
-      const amount = prompt("Fee amount in paise (e.g. 20000 = ₹200):", "0");
+      const amount = prompt("Fee amount in ₹ (rupees):", "0");
       if (amount === null) return;
       await apiFetch(`/staff/queue/tokens/${tokenId}/mark-paid`, {
         method: "POST",
-        body: JSON.stringify({ fee_amount_paise: parseInt(amount, 10) || 0 }),
+        body: JSON.stringify({ fee_amount_paise: rupeesToPaise(amount) }),
       });
     } else if (action === "change-tier") {
       await apiFetch(`/staff/queue/tokens/${tokenId}/change-tier`, {
