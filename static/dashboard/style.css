@@ -115,6 +115,32 @@ header > div { display: flex; align-items: center; gap: 10px; }
   font-size: 14px;
 }
 
+.clinic-info {
+  font-size: 12px;
+  color: var(--muted);
+  margin: -8px 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.clinic-info code {
+  background: #eceef1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; background: none; }
+.copy-confirm { color: var(--success); font-weight: 600; }
+
 section { margin-bottom: 24px; }
 h2 { font-size: 16px; margin: 0 0 10px; }
 h3 { font-size: 14px; margin: 0 0 10px; }

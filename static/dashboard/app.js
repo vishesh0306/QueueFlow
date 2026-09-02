@@ -42,10 +42,15 @@ function showDashboard() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("dashboard-screen").classList.remove("hidden");
   document.getElementById("clinic-role").textContent = `Signed in as ${state.role}`;
+  document.getElementById("clinic-id-display").textContent = state.clinicId;
   document.getElementById("override-card").classList.toggle("hidden", !isPrivilegedRole());
   document.getElementById("pause-resume-btn").classList.toggle("hidden", !isPrivilegedRole());
   connectWebSocket();
   refreshQueue();
+}
+
+function patientLinkForThisClinic() {
+  return `${window.location.origin}/patient-app/?clinic=${state.clinicId}`;
 }
 
 async function login(contact, password) {
@@ -233,6 +238,18 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 
 document.getElementById("logout-btn").addEventListener("click", logout);
 document.getElementById("call-next-btn").addEventListener("click", callNext);
+
+document.getElementById("copy-patient-link-btn").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(patientLinkForThisClinic());
+  } catch {
+    prompt("Copy this link:", patientLinkForThisClinic());
+    return;
+  }
+  const confirmEl = document.getElementById("copy-confirm");
+  confirmEl.classList.remove("hidden");
+  setTimeout(() => confirmEl.classList.add("hidden"), 2000);
+});
 
 document.getElementById("pause-resume-btn").addEventListener("click", (e) => {
   togglePauseResume(e.target.dataset.action);
