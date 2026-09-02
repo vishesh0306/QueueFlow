@@ -5,22 +5,28 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.clock import today_in
 from core.exceptions import NoDoctorConfiguredError
-from db.models import QueueSession, StaffAccount
+from db.models import Clinic, QueueSession, StaffAccount
 
 
-def _todays_session(db: Session, clinic_id: uuid.UUID) -> QueueSession | None:
+def _todays_session(db: Session, clinic_id: uuid.UUID, today: date) -> QueueSession | None:
     return db.execute(
         select(QueueSession).where(
             QueueSession.clinic_id == clinic_id,
-            QueueSession.session_date == date.today(),
+            QueueSession.session_date == today,
         )
     ).scalars().first()
 
 
 def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSession:
-    """Resolve today's queue session for a clinic, creating it on first use (v1: single doctor, one session/day)."""
-    session = _todays_session(db, clinic_id)
+    """Resolve today's queue session for a clinic, creating it on first use (v1: single doctor, one session/day).
+    "Today" is computed in the clinic's own timezone, not the server's -- a UTC server
+    clock can be hours behind a clinic's local calendar date."""
+    clinic = db.get(Clinic, clinic_id)
+    today = today_in(clinic.timezone)
+
+    session = _todays_session(db, clinic_id, today)
     if session is not None:
         return session
 
@@ -30,7 +36,7 @@ def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSess
     if doctor is None:
         raise NoDoctorConfiguredError(clinic_id)
 
-    session = QueueSession(clinic_id=clinic_id, doctor_id=doctor.id, session_date=date.today())
+    session = QueueSession(clinic_id=clinic_id, doctor_id=doctor.id, session_date=today)
     db.add(session)
     try:
         db.commit()
@@ -39,7 +45,7 @@ def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSess
         # our INSERT (the unique constraint on clinic_id+doctor_id+session_date caught
         # it). That's fine -- just pick up the session the winner created.
         db.rollback()
-        return _todays_session(db, clinic_id)
+        return _todays_session(db, clinic_id, today)
     db.refresh(session)
     return session
 
