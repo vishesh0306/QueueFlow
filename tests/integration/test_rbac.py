@@ -43,6 +43,8 @@ def _endpoints(clinic_id: uuid.UUID):
         ("post", f"/staff/queue/tokens/{dummy_token_id}/mark-paid", {"fee_amount_paise": 0}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/void-payment", {}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/change-tier", {"tier": "priority"}, ROLES),
+        ("post", f"/staff/queue/tokens/{dummy_token_id}/update-contact",
+         {"patient_contact": {"type": "email", "value": "a@b.com"}}, ROLES),
         ("post", "/staff/queue/walk-in",
          {"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"}, ROLES),
         ("post", "/staff/queue/emergency-override",

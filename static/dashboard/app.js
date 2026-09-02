@@ -122,6 +122,17 @@ function tokenRow(token, actionsHtml) {
   return div;
 }
 
+function contactEditButtonHtml(token) {
+  // patient_contact is stored as "type:value" (see PatientContact.as_column_value) --
+  // splitting it back out lets the edit prompt pre-fill both parts instead of the
+  // staff member having to retype a contact that was already mostly right.
+  const [ctype, ...rest] = token.patient_contact.split(":");
+  const cvalue = rest.join(":");
+  return `<button data-action="update-contact" data-id="${token.token_id}"
+    data-contact-type="${escapeHtml(ctype)}" data-contact-value="${escapeHtml(cvalue)}"
+    class="secondary">Edit contact</button>`;
+}
+
 function renderCalled(tokens) {
   const container = document.getElementById("called-list");
   const callNextBtn = document.getElementById("call-next-btn");
@@ -145,6 +156,7 @@ function renderCalled(tokens) {
       <button data-action="mark-served" data-id="${token.token_id}">Served</button>
       ${paidControl}
       <button data-action="no-show" data-id="${token.token_id}" class="danger">No-show</button>
+      ${contactEditButtonHtml(token)}
     `);
     container.appendChild(row);
   }
@@ -170,7 +182,11 @@ function renderWaiting(tokens) {
       <td>${escapeHtml(token.tier)}${token.emergency_override ? " (EMERGENCY)" : ""}</td>
       <td>${escapeHtml(token.patient_contact)}</td>
       <td>${joined}</td>
-      <td>${canUpgrade ? `<button data-action="change-tier" data-id="${token.token_id}" class="secondary">Make priority</button>` : ""}</td>
+      <td><div class="btn-group">
+        ${canUpgrade ? `<button data-action="change-tier" data-id="${token.token_id}" class="secondary">Make priority</button>` : ""}
+        ${contactEditButtonHtml(token)}
+        <button data-action="cancel-token" data-id="${token.token_id}" class="danger">Cancel</button>
+      </div></td>
     `;
     body.appendChild(tr);
   });
@@ -221,7 +237,7 @@ async function callNext() {
   }
 }
 
-async function handleTokenAction(action, tokenId) {
+async function handleTokenAction(action, tokenId, dataset = {}) {
   try {
     if (action === "no-show") {
       await apiFetch(`/staff/queue/tokens/${tokenId}/no-show`, { method: "POST" });
@@ -242,6 +258,18 @@ async function handleTokenAction(action, tokenId) {
     } else if (action === "void-payment") {
       if (!confirm("Void this payment? It will show as unpaid again.")) return;
       await apiFetch(`/staff/queue/tokens/${tokenId}/void-payment`, { method: "POST" });
+    } else if (action === "cancel-token") {
+      if (!confirm("Cancel this patient's spot in the queue?")) return;
+      await apiFetch(`/queue/tokens/${tokenId}`, { method: "DELETE" });
+    } else if (action === "update-contact") {
+      const type = prompt("Contact type (telegram or email):", dataset.contactType || "email");
+      if (type === null) return;
+      const value = prompt("Contact value:", dataset.contactValue || "");
+      if (value === null || !value.trim()) return;
+      await apiFetch(`/staff/queue/tokens/${tokenId}/update-contact`, {
+        method: "POST",
+        body: JSON.stringify({ patient_contact: { type: type.trim(), value: value.trim() } }),
+      });
     }
     refreshQueue();
   } catch (err) {
@@ -301,13 +329,13 @@ document.getElementById("close-reopen-btn").addEventListener("click", (e) => {
 document.getElementById("called-list").addEventListener("click", (e) => {
   const action = e.target.dataset.action;
   const id = e.target.dataset.id;
-  if (action && id) handleTokenAction(action, id);
+  if (action && id) handleTokenAction(action, id, e.target.dataset);
 });
 
 document.getElementById("waiting-body").addEventListener("click", (e) => {
   const action = e.target.dataset.action;
   const id = e.target.dataset.id;
-  if (action && id) handleTokenAction(action, id);
+  if (action && id) handleTokenAction(action, id, e.target.dataset);
 });
 
 document.getElementById("walkin-form").addEventListener("submit", async (e) => {

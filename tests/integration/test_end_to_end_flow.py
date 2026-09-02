@@ -202,6 +202,46 @@ def test_close_blocks_new_joins_but_call_next_keeps_working(client, db):
     assert rejoin.status_code == 201
 
 
+def test_staff_can_fix_a_mistyped_contact(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "telegram", "value": "1234"}, "tier": "standard"},
+    )
+    token_id = join_resp.json()["token_id"]
+
+    resp = client.post(
+        f"/staff/queue/tokens/{token_id}/update-contact",
+        json={"patient_contact": {"type": "telegram", "value": "12345"}},
+        headers=_auth(staff_token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["patient_contact"] == "telegram:12345"
+
+
+def test_update_contact_rejects_a_collision_with_another_active_token(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    join_b = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "b@b.com"}, "tier": "standard"},
+    )
+    token_b = join_b.json()["token_id"]
+
+    resp = client.post(
+        f"/staff/queue/tokens/{token_b}/update-contact",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}},
+        headers=_auth(staff_token),
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "ALREADY_IN_QUEUE"
+
+
 def test_staff_can_change_a_waiting_tokens_tier(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")

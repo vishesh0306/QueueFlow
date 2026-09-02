@@ -90,6 +90,11 @@ class ChangeTierRequest(BaseModel):
     tier: Literal["standard", "priority"]
 
 
+class UpdateContactRequest(BaseModel):
+    patient_contact: PatientContact
+    patient_email: str | None = None
+
+
 class LoginRequest(BaseModel):
     contact: str
     password: str

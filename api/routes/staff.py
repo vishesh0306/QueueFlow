@@ -19,6 +19,7 @@ from api.schemas import (
     QueueListResponse,
     QueueTokenSummary,
     SignupRequest,
+    UpdateContactRequest,
     WalkInRequest,
 )
 from core import queue_engine, session_service, token_service
@@ -262,6 +263,26 @@ async def change_tier(token_id: uuid.UUID, body: ChangeTierRequest, db: Session 
     await manager.broadcast_queue_updated(claims.clinic_id, token.session_id)
 
     return {"token_id": token.id, "tier": token.tier, "status": token.status}
+
+
+@router.post("/staff/queue/tokens/{token_id}/update-contact")
+async def update_contact(token_id: uuid.UUID, body: UpdateContactRequest, db: Session = Depends(get_db),
+                          claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    """Fixes a mistyped Telegram handle/email at join time -- the only prior option was
+    cancel + rejoin, which loses the patient's queue position."""
+    _verify_token_in_clinic(db, token_id, claims.clinic_id)
+    try:
+        token = await run_in_threadpool(
+            token_service.update_contact, db, token_id, body.patient_contact.as_column_value(), body.patient_email
+        )
+    except InvalidTransitionError as exc:
+        raise APIError(409, "INVALID_TRANSITION", str(exc))
+    except DuplicateBookingError:
+        raise APIError(409, "ALREADY_IN_QUEUE", "Another active token in this session already uses that contact.")
+
+    await manager.broadcast_queue_updated(claims.clinic_id, token.session_id)
+
+    return {"token_id": token.id, "patient_contact": token.patient_contact}
 
 
 @router.post("/staff/queue/pause")

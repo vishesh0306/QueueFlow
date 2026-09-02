@@ -11,6 +11,7 @@ from core.token_service import (
     join_queue,
     mark_paid,
     mark_served,
+    update_contact,
     upgrade_to_priority,
     void_payment,
 )
@@ -137,6 +138,42 @@ def test_void_payment_rejects_voiding_an_already_voided_payment(db):
 
     with pytest.raises(InvalidTransitionError):
         void_payment(db, token.id)
+
+
+def test_update_contact_fixes_a_mistyped_value(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:1234", "standard")
+
+    updated = update_contact(db, token.id, "telegram:12345")
+
+    assert updated.patient_contact == "telegram:12345"
+
+
+def test_update_contact_also_updates_the_fallback_email_when_given(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:1234", "standard")
+
+    updated = update_contact(db, token.id, "telegram:1234", "fixed@b.com")
+
+    assert updated.patient_email == "fixed@b.com"
+
+
+def test_update_contact_rejects_a_token_that_is_not_active(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:1234", "standard")
+    cancel_token(db, token.id)
+
+    with pytest.raises(InvalidTransitionError):
+        update_contact(db, token.id, "telegram:9999")
+
+
+def test_update_contact_rejects_colliding_with_another_active_tokens_contact(db):
+    session = _make_clinic_session(db)
+    join_queue(db, session, "telegram:aaa", "standard")
+    token_b = join_queue(db, session, "telegram:bbb", "standard")
+
+    with pytest.raises(DuplicateBookingError):
+        update_contact(db, token_b.id, "telegram:aaa")
 
 
 def test_change_tier_moves_a_waiting_token_between_tiers(db):

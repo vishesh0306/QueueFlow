@@ -165,8 +165,8 @@ h3 { font-size: 14px; margin: 0 0 10px; }
 .token-row .info { display: flex; flex-direction: column; gap: 2px; }
 .token-row .display-number { font-weight: 700; font-size: 15px; }
 .token-row .meta { font-size: 12px; color: var(--muted); }
-.token-row .btn-group { display: flex; gap: 6px; }
-.token-row .btn-group button { padding: 6px 10px; font-size: 12px; }
+.btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn-group button { padding: 6px 10px; font-size: 12px; }
 
 .empty-state { color: var(--muted); font-size: 13px; padding: 8px 0; }
 

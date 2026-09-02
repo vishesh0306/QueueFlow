@@ -96,6 +96,32 @@ def void_payment(db: Session, token_id: uuid.UUID) -> Payment:
     return payment
 
 
+def update_contact(db: Session, token_id: uuid.UUID, new_contact: str, new_email: str | None = None) -> Token:
+    """Staff-only correction for a mistyped Telegram handle or email at join time --
+    the only alternative was cancel + rejoin, which loses the patient's queue position."""
+    token = db.execute(select(Token).where(Token.id == token_id).with_for_update()).scalar_one()
+    if token.status not in ("waiting", "called"):
+        raise InvalidTransitionError(f"Token {token_id} is '{token.status}', contact can only be corrected while active")
+
+    duplicate = db.execute(
+        select(Token).where(
+            Token.session_id == token.session_id,
+            Token.patient_contact == new_contact,
+            Token.status.in_(("waiting", "called")),
+            Token.id != token_id,
+        )
+    ).scalars().first()
+    if duplicate is not None:
+        raise DuplicateBookingError(token.session_id, new_contact)
+
+    token.patient_contact = new_contact
+    if new_email is not None:
+        token.patient_email = new_email
+    db.commit()
+    db.refresh(token)
+    return token
+
+
 def change_tier(db: Session, token_id: uuid.UUID, new_tier: str) -> Token:
     """Staff-driven tier change (standard<->priority) for a token still waiting to be
     called. Only the tier field moves -- sequence_no (join-order position) is untouched,
