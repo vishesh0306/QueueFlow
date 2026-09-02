@@ -195,7 +195,10 @@ async def mark_served(token_id: uuid.UUID, db: Session = Depends(get_db),
 def mark_paid(token_id: uuid.UUID, body: MarkPaidRequest, db: Session = Depends(get_db),
               claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     _verify_token_in_clinic(db, token_id, claims.clinic_id)
-    payment = token_service.mark_paid(db, token_id, claims.staff_id, body.fee_amount_paise)
+    try:
+        payment = token_service.mark_paid(db, token_id, claims.staff_id, body.fee_amount_paise)
+    except InvalidTransitionError as exc:
+        raise APIError(409, "INVALID_TRANSITION", str(exc))
     return {"token_id": token_id, "paid": payment.paid, "fee_amount_paise": payment.fee_amount_paise}
 
 

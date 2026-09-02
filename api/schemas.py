@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PatientContact(BaseModel):
@@ -82,7 +82,7 @@ class EmergencyOverrideRequest(BaseModel):
 
 
 class MarkPaidRequest(BaseModel):
-    fee_amount_paise: int
+    fee_amount_paise: int = Field(ge=0)
 
 
 class LoginRequest(BaseModel):

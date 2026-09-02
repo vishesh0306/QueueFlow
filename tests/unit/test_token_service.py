@@ -1,9 +1,11 @@
+import uuid
 from datetime import date
 
 import pytest
 
-from core.exceptions import DuplicateBookingError
-from core.token_service import cancel_token, join_queue, mark_served
+from core.exceptions import DuplicateBookingError, InvalidTransitionError
+from core.queue_engine import call_next
+from core.token_service import cancel_token, join_queue, mark_paid, mark_served
 from db.models import Clinic, QueueSession, StaffAccount
 
 
@@ -72,3 +74,25 @@ def test_join_queue_allows_different_contacts_freely(db):
     b = join_queue(db, session, "telegram:bbb", "standard")
 
     assert a.id != b.id
+
+
+def test_mark_paid_rejects_a_cancelled_token(db):
+    """A cancelled token never gets served, so recording a payment against it would be a
+    receptionist mistake (or a stale UI action) -- there's nothing to collect fees for."""
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    cancel_token(db, token.id)
+
+    with pytest.raises(InvalidTransitionError):
+        mark_paid(db, token.id, uuid.uuid4(), 20000)
+
+
+def test_mark_paid_succeeds_for_a_called_token(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    call_next(db, session.id)
+
+    payment = mark_paid(db, token.id, session.doctor_id, 20000)
+
+    assert payment.paid is True
+    assert payment.fee_amount_paise == 20000

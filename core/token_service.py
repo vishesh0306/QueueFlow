@@ -66,6 +66,10 @@ def mark_served(db: Session, token_id: uuid.UUID) -> Token:
 
 
 def mark_paid(db: Session, token_id: uuid.UUID, collected_by: uuid.UUID, fee_amount_paise: int) -> Payment:
+    token = db.get(Token, token_id)
+    if token.status == "cancelled":
+        raise InvalidTransitionError(f"Token {token_id} is cancelled, cannot record a payment for it")
+
     payment = db.get(Payment, token_id)
     if payment is None:
         payment = Payment(token_id=token_id, fee_amount_paise=fee_amount_paise)
