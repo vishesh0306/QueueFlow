@@ -85,6 +85,33 @@ def test_emergency_override_bypasses_interleave(db):
     assert called.emergency_override is True
 
 
+def test_emergency_calls_do_not_advance_the_interleave_counter(db):
+    """HLD: emergency override is processed "regardless of the interleave counter" --
+    found via a live production-data trace that call_counter was incrementing for
+    emergency picks too, silently burning real standard/priority patients' fair-share
+    interleave slots on calls the interleave logic never actually decided."""
+    session = _make_clinic_session(db)
+    trigger_emergency_override(db, session.id, "t:urgent-1")
+    trigger_emergency_override(db, session.id, "t:urgent-2")
+
+    assert session.call_counter == 0
+    first = call_next(db, session.id)
+    db.refresh(session)
+    assert session.call_counter == 0
+    mark_served(db, first.id)  # resolve before calling next again (single-doctor invariant)
+
+    second = call_next(db, session.id)
+    db.refresh(session)
+    assert session.call_counter == 0
+    mark_served(db, second.id)
+
+    # A genuinely interleave-decided call, right after, still correctly advances it.
+    _join(db, session, "standard")
+    call_next(db, session.id)
+    db.refresh(session)
+    assert session.call_counter == 1
+
+
 def test_no_show_swaps_with_next_same_tier(db):
     session = _make_clinic_session(db)
     a = _join(db, session, "standard", "t:a")
@@ -162,6 +189,32 @@ def test_swap_used_token_falls_back_to_requeue_on_second_noshow(db):
     result = handle_no_show(db, a.id)  # a no-shows again; its swap is already spent
 
     assert result == {"action": "requeued", "new_called_token_id": None}
+
+
+def test_no_show_swap_never_collides_with_an_already_served_tokens_sequence_no(db):
+    """Found via a live production-data trace: a served (terminal) token can be sitting
+    at some sequence_no with nothing protecting that value, since the old shift only
+    considered currently-waiting same-tier rows. A later, unrelated swap could then
+    silently reassign a different token to that exact same value. Constructs the same
+    shape (a served row sitting at a low value, then a swap event whose target lands
+    near it) and asserts sequence_no stays unique across every row, any tier or status."""
+    session = _make_clinic_session(db)
+    served_early = _join(db, session, "standard", "t:served-early")
+    call_next(db, session.id)
+    mark_served(db, served_early.id)  # now a frozen, terminal row -- but keeps its sequence_no
+
+    a = _join(db, session, "standard", "t:a")
+    b = _join(db, session, "standard", "t:b")
+    call_next(db, session.id)          # calls a
+    handle_no_show(db, a.id)           # a<->b swap -- a reinserted right behind b's old slot
+
+    db.refresh(served_early)
+    all_tokens = db.query(Token).filter_by(session_id=session.id).all()
+    sequence_numbers = [t.sequence_no for t in all_tokens]
+
+    assert len(sequence_numbers) == len(set(sequence_numbers)), (
+        f"duplicate sequence_no across tokens: {[(t.display_number or t.id, t.status, t.sequence_no) for t in all_tokens]}"
+    )
 
 
 def test_handle_no_show_rejects_non_called_token(db):

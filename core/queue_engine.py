@@ -39,13 +39,25 @@ def _next_waiting_token(db: Session, session_id: uuid.UUID, *, tier: str | None 
 
 
 def _sequence_after(db: Session, partner: Token) -> int:
-    """Make room for a value immediately after `partner` within its session+tier waiting list."""
+    """Make room for a value immediately after `partner`.
+
+    sequence_no is a single global ordering key shared by the whole tokens table, not
+    one scoped per tier or per status -- so the shift must consider every row in the
+    session, not just other currently-waiting same-tier ones. Restricting it to
+    tier+waiting (as this used to) left already-called/served rows invisible to the
+    shift: a later swap could silently reassign a value a served row already froze
+    on, producing duplicate sequence_no values that corrupted no live ordering query
+    directly (those all filter by tier already) but broke the column's invariant and
+    could still tie-break unpredictably between rows that do share a tier.
+
+    Shifting the whole session's rows uniformly by +1 preserves every row's relative
+    order to every other row, called/served/cancelled included, so this is always
+    safe -- it just costs a few more touched rows than the old narrower shift.
+    """
     db.execute(
         update(Token)
         .where(
             Token.session_id == partner.session_id,
-            Token.tier == partner.tier,
-            Token.status == "waiting",
             Token.sequence_no > partner.sequence_no,
         )
         .values(sequence_no=Token.sequence_no + 1)
@@ -76,6 +88,7 @@ def call_next(db: Session, session_id: uuid.UUID) -> Token:
     # 1. Emergency override always wins, regardless of interleave state OR pause —
     #    a genuine urgent case shouldn't have to wait on an administrative pause.
     token = _next_waiting_token(db, session_id, emergency_override=True)
+    is_emergency_pick = token is not None
 
     # 2. Otherwise pick the sub-queue the interleave policy points to — but only if
     #    the session is actually active; a pause should stop ordinary calling.
@@ -97,7 +110,12 @@ def call_next(db: Session, session_id: uuid.UUID) -> Token:
 
     token.status = "called"
     token.called_at = utcnow()
-    session.call_counter += 1
+    # Emergency picks never consult call_counter to begin with (HLD: "processed
+    # immediately regardless of the interleave counter") -- advancing it for them
+    # anyway would silently burn real standard/priority patients' fair-share slots
+    # on calls that were never actually decided by the interleave in the first place.
+    if not is_emergency_pick:
+        session.call_counter += 1
     db.commit()
     _notify_your_turn(token, session.clinic.name)
     return token
