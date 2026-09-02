@@ -336,6 +336,73 @@ def test_emergency_override_on_an_already_queued_patient_does_not_orphan_their_t
     assert matching[0]["emergency_override"] is True
 
 
+def test_served_today_reports_paid_and_pending_patients(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+
+    # Priority patient: served and paid.
+    join_a = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "paid@b.com"}, "tier": "priority"},
+    )
+    token_a = join_a.json()["token_id"]
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    client.post(
+        f"/staff/queue/tokens/{token_a}/mark-paid",
+        json={"fee_amount_paise": clinic.priority_fee_paise},
+        headers=_auth(staff_token),
+    )
+    client.post(f"/staff/queue/tokens/{token_a}/mark-served", headers=_auth(staff_token))
+
+    # Priority patient: served but never marked paid -- should count as pending at the
+    # clinic's priority fee, not as free.
+    join_b = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "unpaid@b.com"}, "tier": "priority"},
+    )
+    token_b = join_b.json()["token_id"]
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    client.post(f"/staff/queue/tokens/{token_b}/mark-served", headers=_auth(staff_token))
+
+    # Standard patient: served, free -- should not appear in pending at all.
+    join_c = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "free@b.com"}, "tier": "standard"},
+    )
+    token_c = join_c.json()["token_id"]
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    client.post(f"/staff/queue/tokens/{token_c}/mark-served", headers=_auth(staff_token))
+
+    resp = client.get("/staff/queue/served-today", headers=_auth(staff_token))
+    assert resp.status_code == 200
+    body = resp.json()
+
+    served_by_id = {s["token_id"]: s for s in body["served"]}
+    assert len(served_by_id) == 3
+    assert served_by_id[token_a]["paid"] is True
+    assert served_by_id[token_a]["fee_amount_paise"] == clinic.priority_fee_paise
+    assert served_by_id[token_b]["paid"] is False
+    assert served_by_id[token_b]["fee_amount_paise"] == clinic.priority_fee_paise
+    assert served_by_id[token_c]["paid"] is False
+    assert served_by_id[token_c]["fee_amount_paise"] == 0
+
+    assert body["total_collected_paise"] == clinic.priority_fee_paise
+    assert body["total_pending_paise"] == clinic.priority_fee_paise  # only token_b -- token_c is free
+
+
+def test_served_today_excludes_waiting_and_called_tokens(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+
+    resp = client.get("/staff/queue/served-today", headers=_auth(staff_token))
+    assert resp.json()["served"] == []
+
+
 def test_staff_can_void_a_payment(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")

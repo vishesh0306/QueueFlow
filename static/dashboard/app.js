@@ -224,12 +224,46 @@ function renderSessionStatus(status) {
   closeBtn.dataset.action = status === "closed" ? "resume" : "close";
 }
 
+function renderServed(data) {
+  const body = document.getElementById("served-body");
+  body.innerHTML = "";
+  if (data.served.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="empty-state">No one served yet today.</td></tr>';
+  } else {
+    for (const token of data.served) {
+      const tr = document.createElement("tr");
+      const servedAt = token.served_at ? new Date(token.served_at).toLocaleTimeString() : "-";
+      const paymentCell = token.paid
+        ? `<span class="paid-badge">Paid ✓ ₹${paiseToRupees(token.fee_amount_paise)}</span>
+           <button data-action="void-payment" data-id="${token.token_id}" class="secondary">Void</button>`
+        : token.fee_amount_paise > 0
+          ? `<span class="pending-badge">Pending ₹${paiseToRupees(token.fee_amount_paise)}</span>
+             <button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Paid</button>`
+          : `<span class="free-badge">Free</span>`;
+      tr.innerHTML = `
+        <td>${escapeHtml(token.display_number) || "-"}</td>
+        <td>${escapeHtml(token.tier)}</td>
+        <td>${escapeHtml(token.patient_contact)}</td>
+        <td>${servedAt}</td>
+        <td><div class="btn-group">${paymentCell}</div></td>
+      `;
+      body.appendChild(tr);
+    }
+  }
+
+  document.getElementById("served-totals").textContent =
+    `· Collected ₹${paiseToRupees(data.total_collected_paise)} · Pending ₹${paiseToRupees(data.total_pending_paise)}`;
+}
+
 async function refreshQueue() {
   try {
     const data = await apiFetch("/staff/queue");
     renderSessionStatus(data.session_status);
     renderCalled(data.called);
     renderWaiting(data.waiting);
+
+    const served = await apiFetch("/staff/queue/served-today");
+    renderServed(served);
   } catch (err) {
     if (err.message.includes("Invalid or expired token")) {
       logout();
@@ -346,6 +380,12 @@ document.getElementById("called-list").addEventListener("click", (e) => {
 });
 
 document.getElementById("waiting-body").addEventListener("click", (e) => {
+  const action = e.target.dataset.action;
+  const id = e.target.dataset.id;
+  if (action && id) handleTokenAction(action, id, e.target.dataset);
+});
+
+document.getElementById("served-body").addEventListener("click", (e) => {
   const action = e.target.dataset.action;
   const id = e.target.dataset.id;
   if (action && id) handleTokenAction(action, id, e.target.dataset);

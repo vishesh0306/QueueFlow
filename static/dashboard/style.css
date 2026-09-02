@@ -79,6 +79,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .error { color: var(--danger); font-size: 13px; min-height: 16px; margin: 0; }
 
 .paid-badge { color: var(--success); font-weight: 600; font-size: 13px; }
+.pending-badge { color: var(--warn); font-weight: 600; font-size: 13px; }
+.free-badge { color: var(--muted); font-weight: 600; font-size: 13px; }
+.totals-line { font-size: 13px; font-weight: 400; color: var(--muted); text-transform: none; }
 
 .back-link { font-size: 13px; color: var(--muted); text-decoration: none; margin-bottom: 8px; display: inline-block; }
 .back-link:hover { color: var(--accent); }

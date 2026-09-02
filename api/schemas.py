@@ -67,6 +67,24 @@ class QueueListResponse(BaseModel):
     waiting: list[QueueTokenSummary]
 
 
+class ServedTokenSummary(BaseModel):
+    token_id: uuid.UUID
+    display_number: str | None
+    tier: str
+    patient_contact: str
+    served_at: datetime | None
+    paid: bool
+    fee_amount_paise: int
+
+
+class ServedTodayResponse(BaseModel):
+    session_id: uuid.UUID
+    session_date: str
+    served: list[ServedTokenSummary]
+    total_collected_paise: int
+    total_pending_paise: int
+
+
 class NoShowResponse(BaseModel):
     token_id: uuid.UUID
     action: str

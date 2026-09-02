@@ -18,6 +18,8 @@ from api.schemas import (
     NoShowResponse,
     QueueListResponse,
     QueueTokenSummary,
+    ServedTodayResponse,
+    ServedTokenSummary,
     SignupRequest,
     UpdateContactRequest,
     WalkInRequest,
@@ -144,6 +146,50 @@ def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(requir
     )
 
 
+@router.get("/staff/queue/served-today", response_model=ServedTodayResponse)
+def served_today(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    """Once a token moves to 'served' it drops out of /staff/queue entirely, which left
+    no way to review who was seen today or reconcile who has/hasn't paid. This is that
+    view -- a standard-tier token with no Payment row is free (0 due, not pending); a
+    priority-tier one with no Payment row is treated as pending at the clinic's current
+    priority fee, since nobody's recorded collecting it yet."""
+    session = _resolve_session(db, claims.clinic_id)
+    clinic = db.get(Clinic, claims.clinic_id)
+
+    tokens = db.execute(
+        select(Token)
+        .where(Token.session_id == session.id, Token.status == "served")
+        .order_by(Token.served_at)
+    ).scalars().all()
+
+    served: list[ServedTokenSummary] = []
+    total_collected = 0
+    total_pending = 0
+    for t in tokens:
+        if t.payment is not None:
+            paid, fee = t.payment.paid, t.payment.fee_amount_paise
+        else:
+            paid, fee = False, (clinic.priority_fee_paise if t.tier == "priority" else 0)
+
+        served.append(ServedTokenSummary(
+            token_id=t.id, display_number=t.display_number, tier=t.tier,
+            patient_contact=t.patient_contact, served_at=t.served_at,
+            paid=paid, fee_amount_paise=fee,
+        ))
+        if paid:
+            total_collected += fee
+        else:
+            total_pending += fee
+
+    return ServedTodayResponse(
+        session_id=session.id,
+        session_date=str(session.session_date),
+        served=served,
+        total_collected_paise=total_collected,
+        total_pending_paise=total_pending,
+    )
+
+
 @router.post("/staff/queue/call-next", response_model=CallNextResponse)
 async def call_next(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
@@ -196,24 +242,34 @@ async def mark_served(token_id: uuid.UUID, db: Session = Depends(get_db),
 
 
 @router.post("/staff/queue/tokens/{token_id}/mark-paid")
-def mark_paid(token_id: uuid.UUID, body: MarkPaidRequest, db: Session = Depends(get_db),
-              claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+async def mark_paid(token_id: uuid.UUID, body: MarkPaidRequest, db: Session = Depends(get_db),
+                     claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     _verify_token_in_clinic(db, token_id, claims.clinic_id)
     try:
-        payment = token_service.mark_paid(db, token_id, claims.staff_id, body.fee_amount_paise)
+        payment = await run_in_threadpool(
+            token_service.mark_paid, db, token_id, claims.staff_id, body.fee_amount_paise
+        )
     except InvalidTransitionError as exc:
         raise APIError(409, "INVALID_TRANSITION", str(exc))
+
+    session_id = db.execute(select(Token.session_id).where(Token.id == token_id)).scalar_one()
+    await manager.broadcast_queue_updated(claims.clinic_id, session_id)
+
     return {"token_id": token_id, "paid": payment.paid, "fee_amount_paise": payment.fee_amount_paise}
 
 
 @router.post("/staff/queue/tokens/{token_id}/void-payment")
-def void_payment(token_id: uuid.UUID, db: Session = Depends(get_db),
-                  claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+async def void_payment(token_id: uuid.UUID, db: Session = Depends(get_db),
+                        claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     _verify_token_in_clinic(db, token_id, claims.clinic_id)
     try:
-        payment = token_service.void_payment(db, token_id)
+        payment = await run_in_threadpool(token_service.void_payment, db, token_id)
     except InvalidTransitionError as exc:
         raise APIError(409, "INVALID_TRANSITION", str(exc))
+
+    session_id = db.execute(select(Token.session_id).where(Token.id == token_id)).scalar_one()
+    await manager.broadcast_queue_updated(claims.clinic_id, session_id)
+
     return {"token_id": token_id, "paid": payment.paid, "fee_amount_paise": payment.fee_amount_paise}
 
 

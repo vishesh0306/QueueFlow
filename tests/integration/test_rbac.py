@@ -37,6 +37,7 @@ def _endpoints(clinic_id: uuid.UUID):
     dummy_token_id = uuid.uuid4()
     return [
         ("get", "/staff/queue", None, ROLES),
+        ("get", "/staff/queue/served-today", None, ROLES),
         ("post", "/staff/queue/call-next", {}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/no-show", {}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/mark-served", {}, ROLES),
