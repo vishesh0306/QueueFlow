@@ -134,6 +134,17 @@ def handle_no_show(db: Session, token_id: uuid.UUID) -> dict:
         select(QueueSession).where(QueueSession.id == token.session_id).with_for_update()
     ).scalar_one()
     session.no_show_count += 1
+    token.no_show_count += 1
+
+    # A patient can be marked emergency before they've physically arrived (e.g. a phone
+    # call ahead of a walk-in) -- repeated no-shows on that flagged priority are either a
+    # resolved situation or someone using "emergency" to skip the line. Demoting after
+    # the 2nd one keeps their spot in the ordinary queue (nothing is cancelled) while
+    # stopping an unresponsive contact from permanently squatting the fairness bypass.
+    # Staff can always re-trigger emergency-override on them if it turns out to still
+    # be urgent -- this isn't a lockout.
+    if token.emergency_override and token.no_show_count >= 2:
+        token.emergency_override = False
 
     if not token.swap_used:
         partner = _next_waiting_token(db, token.session_id, tier=token.tier)

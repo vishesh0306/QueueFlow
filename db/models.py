@@ -122,6 +122,7 @@ class Token(Base):
     status: Mapped[str] = mapped_column(TokenStatus, nullable=False, default="waiting")
     sequence_no: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
     swap_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    no_show_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     display_number: Mapped[str | None] = mapped_column(String(10), nullable=True)
     lead_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     joined_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())

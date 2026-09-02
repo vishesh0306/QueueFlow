@@ -254,6 +254,66 @@ def test_emergency_override_creates_a_new_token_when_patient_not_already_queued(
     assert token.status == "waiting"
 
 
+def test_no_show_count_tracks_per_token_regardless_of_emergency_status(db):
+    session = _make_clinic_session(db)
+    token = _join(db, session, "standard", "t:a")
+    call_next(db, session.id)
+
+    handle_no_show(db, token.id)
+
+    db.refresh(token)
+    assert token.no_show_count == 1
+    assert token.emergency_override is False
+
+
+def test_emergency_token_survives_a_single_no_show(db):
+    session = _make_clinic_session(db)
+    token = trigger_emergency_override(db, session.id, "t:emergency")
+    call_next(db, session.id)
+
+    handle_no_show(db, token.id)
+
+    db.refresh(token)
+    assert token.emergency_override is True
+    assert token.no_show_count == 1
+
+
+def test_emergency_token_demoted_after_a_second_no_show(db):
+    """A patient can be flagged emergency before they've even arrived (e.g. a phone
+    call ahead) -- repeated no-shows on that priority get walked back rather than
+    letting an unresponsive contact permanently hold the emergency fairness bypass."""
+    session = _make_clinic_session(db)
+    token = trigger_emergency_override(db, session.id, "t:emergency")
+    call_next(db, session.id)
+    handle_no_show(db, token.id)
+
+    call_next(db, session.id)
+    handle_no_show(db, token.id)
+
+    db.refresh(token)
+    assert token.emergency_override is False
+    assert token.no_show_count == 2
+
+
+def test_demoted_emergency_token_is_no_longer_picked_by_the_emergency_filter(db):
+    session = _make_clinic_session(db)
+    emergency = trigger_emergency_override(db, session.id, "t:emergency")
+    call_next(db, session.id)
+    handle_no_show(db, emergency.id)
+    call_next(db, session.id)
+    handle_no_show(db, emergency.id)  # now demoted
+
+    _join(db, session, "standard", "t:other")  # joins after emergency was requeued+demoted
+    called = call_next(db, session.id)
+
+    # Demoted token still gets called first here, but purely because it was requeued
+    # (and so got its FIFO sequence_no) before "other" joined -- not because of any
+    # remaining emergency privilege, which the assertion below confirms is gone.
+    assert called.id == emergency.id
+    db.refresh(emergency)
+    assert emergency.emergency_override is False
+
+
 def test_emergency_override_rejects_escalating_a_patient_who_is_already_called(db):
     session = _make_clinic_session(db)
     _join(db, session, "standard", "t:patient")

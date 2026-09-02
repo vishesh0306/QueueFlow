@@ -202,6 +202,28 @@ def test_close_blocks_new_joins_but_call_next_keeps_working(client, db):
     assert rejoin.status_code == 201
 
 
+def test_emergency_token_loses_priority_after_two_no_shows_via_api(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+
+    override_resp = client.post(
+        "/staff/queue/emergency-override",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}},
+        headers=_auth(staff_token),
+    )
+    token_id = override_resp.json()["token_id"]
+
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    client.post(f"/staff/queue/tokens/{token_id}/no-show", headers=_auth(staff_token))
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    client.post(f"/staff/queue/tokens/{token_id}/no-show", headers=_auth(staff_token))
+
+    queue = client.get("/staff/queue", headers=_auth(staff_token)).json()
+    matching = [t for t in queue["waiting"] if t["token_id"] == token_id]
+    assert len(matching) == 1
+    assert matching[0]["emergency_override"] is False
+
+
 def test_staff_can_fix_a_mistyped_contact(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")
