@@ -2,20 +2,25 @@ import uuid
 from datetime import date
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.exceptions import NoDoctorConfiguredError
 from db.models import QueueSession, StaffAccount
 
 
-def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSession:
-    """Resolve today's queue session for a clinic, creating it on first use (v1: single doctor, one session/day)."""
-    session = db.execute(
+def _todays_session(db: Session, clinic_id: uuid.UUID) -> QueueSession | None:
+    return db.execute(
         select(QueueSession).where(
             QueueSession.clinic_id == clinic_id,
             QueueSession.session_date == date.today(),
         )
     ).scalars().first()
+
+
+def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSession:
+    """Resolve today's queue session for a clinic, creating it on first use (v1: single doctor, one session/day)."""
+    session = _todays_session(db, clinic_id)
     if session is not None:
         return session
 
@@ -27,7 +32,14 @@ def get_or_create_active_session(db: Session, clinic_id: uuid.UUID) -> QueueSess
 
     session = QueueSession(clinic_id=clinic_id, doctor_id=doctor.id, session_date=date.today())
     db.add(session)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Lost a race: another request created today's session between our SELECT and
+        # our INSERT (the unique constraint on clinic_id+doctor_id+session_date caught
+        # it). That's fine -- just pick up the session the winner created.
+        db.rollback()
+        return _todays_session(db, clinic_id)
     db.refresh(session)
     return session
 

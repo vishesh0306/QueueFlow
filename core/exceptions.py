@@ -31,3 +31,15 @@ class SessionNotActiveError(Exception):
         super().__init__(f"Session {session_id} is '{status}', not accepting call-next right now")
         self.session_id = session_id
         self.status = status
+
+
+class PatientAlreadyCalledError(Exception):
+    """v1 assumes a single doctor, so at most one token can be 'called' at a time. Raised
+    when call_next() is invoked while a previous call is still unresolved (not yet marked
+    served/no-show/cancelled) -- including when a no-show swap silently promoted a new
+    token to 'called' as a side effect that nobody has acted on yet."""
+
+    def __init__(self, session_id: uuid.UUID, called_token_id: uuid.UUID):
+        super().__init__(f"Session {session_id} already has an unresolved called token {called_token_id}")
+        self.session_id = session_id
+        self.called_token_id = called_token_id

@@ -106,7 +106,15 @@ function tokenRow(token, actionsHtml) {
 
 function renderCalled(tokens) {
   const container = document.getElementById("called-list");
+  const callNextBtn = document.getElementById("call-next-btn");
   container.innerHTML = "";
+
+  // v1 assumes one doctor: only one patient can be called at a time, so "Call next"
+  // stays disabled until the current one is resolved (served/no-show) -- the server
+  // enforces this too, this just avoids surprising the user with an error banner.
+  callNextBtn.disabled = tokens.length > 0;
+  callNextBtn.title = tokens.length > 0 ? "Resolve the currently called patient first" : "";
+
   if (tokens.length === 0) {
     container.innerHTML = '<p class="empty-state">No one is currently called.</p>';
     return;

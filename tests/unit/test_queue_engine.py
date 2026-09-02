@@ -3,8 +3,9 @@ from datetime import date
 
 import pytest
 
-from core.exceptions import InvalidTransitionError, QueueEmptyError
+from core.exceptions import InvalidTransitionError, PatientAlreadyCalledError, QueueEmptyError
 from core.queue_engine import call_next, handle_no_show, trigger_emergency_override
+from core.token_service import mark_served
 from db.models import Clinic, QueueSession, StaffAccount, Token
 
 
@@ -43,9 +44,24 @@ def test_call_next_follows_interleave_ratio(db):
     for _ in range(2):
         _join(db, session, "priority")
 
-    order = [call_next(db, session.id).tier for _ in range(6)]
+    order = []
+    for _ in range(6):
+        token = call_next(db, session.id)
+        order.append(token.tier)
+        mark_served(db, token.id)  # v1 assumes one doctor: must resolve before calling next again
 
     assert order == ["priority", "standard", "standard", "priority", "standard", "standard"]
+
+
+def test_call_next_rejects_a_second_call_while_one_is_unresolved(db):
+    session = _make_clinic_session(db)
+    _join(db, session, "standard")
+    _join(db, session, "standard")
+
+    call_next(db, session.id)
+
+    with pytest.raises(PatientAlreadyCalledError):
+        call_next(db, session.id)
 
 
 def test_call_next_falls_back_when_preferred_tier_empty(db):
@@ -102,11 +118,12 @@ def test_no_show_increments_session_no_show_count(db):
 def test_swapped_token_reinserted_immediately_behind_partner(db):
     session = _make_clinic_session(db)
     a = _join(db, session, "standard", "t:a")
-    _join(db, session, "standard", "t:b")
+    b = _join(db, session, "standard", "t:b")
     c = _join(db, session, "standard", "t:c")
 
     call_next(db, session.id)       # calls a
-    handle_no_show(db, a.id)        # a<->b swap: a goes back to waiting, right behind b's old slot
+    handle_no_show(db, a.id)        # a<->b swap: a goes back to waiting, right behind b's old slot; b now called
+    mark_served(db, b.id)           # resolve b (v1 assumes one doctor) before calling next again
 
     next_called = call_next(db, session.id)
     assert next_called.id == a.id   # a is picked again, ahead of c

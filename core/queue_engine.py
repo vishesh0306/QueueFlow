@@ -4,7 +4,12 @@ from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from core.clock import utcnow
-from core.exceptions import InvalidTransitionError, QueueEmptyError, SessionNotActiveError
+from core.exceptions import (
+    InvalidTransitionError,
+    PatientAlreadyCalledError,
+    QueueEmptyError,
+    SessionNotActiveError,
+)
 from core.interleave import next_subqueue, parse_ratio
 from core.session_service import next_display_number
 from db.models import QueueSession, Token
@@ -58,6 +63,15 @@ def call_next(db: Session, session_id: uuid.UUID) -> Token:
     session = db.execute(
         select(QueueSession).where(QueueSession.id == session_id).with_for_update()
     ).scalar_one()
+
+    # v1 assumes a single doctor: at most one token can be 'called' at a time. Without
+    # this, a no-show swap's silently-promoted partner (see handle_no_show) could be
+    # abandoned forever by a call-next that ignores it and calls someone else entirely.
+    already_called = db.execute(
+        select(Token).where(Token.session_id == session_id, Token.status == "called")
+    ).scalars().first()
+    if already_called is not None:
+        raise PatientAlreadyCalledError(session_id, already_called.id)
 
     # 1. Emergency override always wins, regardless of interleave state OR pause —
     #    a genuine urgent case shouldn't have to wait on an administrative pause.
