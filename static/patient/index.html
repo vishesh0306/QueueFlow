@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QueueFlow</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="join-screen">
+  <form id="join-form">
+    <h1>Join the queue</h1>
+    <p id="clinic-missing" class="hint hidden">
+      No clinic link detected. Ask the front desk for your clinic's QR code or link, or enter the clinic ID below.
+    </p>
+    <input type="text" id="clinic-id-input" placeholder="Clinic ID" class="hidden">
+
+    <label>How should we reach you?
+      <select id="contact-type">
+        <option value="telegram">Telegram</option>
+        <option value="email">Email</option>
+      </select>
+    </label>
+    <input type="text" id="contact-value" placeholder="Telegram handle or email address" required>
+    <input type="email" id="fallback-email" placeholder="Backup email (optional, used if the above fails)">
+
+    <label class="tier-choice">
+      <input type="radio" name="tier" value="standard" checked>
+      <span><strong>Standard</strong> — free</span>
+    </label>
+    <label class="tier-choice">
+      <input type="radio" name="tier" value="priority">
+      <span><strong>Priority</strong> — paid, moves faster (fee shown at front desk)</span>
+    </label>
+
+    <button type="submit">Join queue</button>
+    <p id="join-error" class="error"></p>
+  </form>
+</div>
+
+<div id="status-screen" class="hidden">
+  <div class="status-card">
+    <p class="eyebrow">Your number</p>
+    <h1 id="display-number">—</h1>
+    <p id="status-line" class="status-line"></p>
+
+    <div id="position-block">
+      <div class="stat">
+        <span class="stat-value" id="position-value">—</span>
+        <span class="stat-label">people ahead of you</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="eta-value">—</span>
+        <span class="stat-label">estimated wait</span>
+      </div>
+    </div>
+
+    <p id="called-banner" class="called-banner hidden">🔔 It's your turn — please head to the counter now.</p>
+
+    <button id="cancel-btn" class="secondary">Cancel my spot</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

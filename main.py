@@ -26,3 +26,4 @@ def health():
 
 
 app.mount("/dashboard", StaticFiles(directory="static/dashboard", html=True), name="dashboard")
+app.mount("/patient-app", StaticFiles(directory="static/patient", html=True), name="patient-app")

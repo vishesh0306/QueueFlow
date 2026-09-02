@@ -109,13 +109,17 @@ async def no_show(token_id: uuid.UUID, db: Session = Depends(get_db),
 
 
 @router.post("/staff/queue/tokens/{token_id}/mark-served")
-def mark_served(token_id: uuid.UUID, db: Session = Depends(get_db),
-                 claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+async def mark_served(token_id: uuid.UUID, db: Session = Depends(get_db),
+                       claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     _verify_token_in_clinic(db, token_id, claims.clinic_id)
     try:
-        token = token_service.mark_served(db, token_id)
+        token = await run_in_threadpool(token_service.mark_served, db, token_id)
     except InvalidTransitionError as exc:
         raise APIError(409, "INVALID_TRANSITION", str(exc))
+
+    # Not just for the staff dashboard's own list — this is the only signal a patient's
+    # own status page gets that their visit is over (it has no other reason to re-fetch).
+    await manager.broadcast_queue_updated(claims.clinic_id, token.session_id)
 
     return {"token_id": token.id, "status": token.status, "served_at": token.served_at}
 
