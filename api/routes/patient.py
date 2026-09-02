@@ -37,7 +37,7 @@ async def join_queue(clinic_id: uuid.UUID, body: JoinQueueRequest, db: Session =
         raise APIError(409, "ALREADY_IN_QUEUE", "This contact already has an active token in today's queue.")
 
     position = token_service.position_in_queue(db, token)
-    fee_due = clinic.priority_fee_paise if token.tier == "priority" else 0
+    fee_due = token_service.fee_due_for(clinic, token.tier, token.emergency_override)
 
     await manager.broadcast_queue_updated(clinic_id, session.id)
 
@@ -80,7 +80,7 @@ async def upgrade_to_priority(token_id: uuid.UUID, db: Session = Depends(get_db)
         "token_id": token.id,
         "tier": token.tier,
         "position": position,
-        "fee_due_paise": clinic.priority_fee_paise,
+        "fee_due_paise": token_service.fee_due_for(clinic, token.tier, token.emergency_override),
     }
 
 

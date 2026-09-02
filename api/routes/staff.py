@@ -12,9 +12,10 @@ from api.schemas import (
     CallNextResponse,
     ChangeTierRequest,
     EmergencyOverrideRequest,
+    FeeConfigResponse,
+    FeeConfigUpdateRequest,
     LoginRequest,
     LoginResponse,
-    MarkPaidRequest,
     NoShowResponse,
     QueueListResponse,
     QueueTokenSummary,
@@ -121,12 +122,15 @@ def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(requir
     ).scalars().all()
 
     def _summary(t: Token) -> QueueTokenSummary:
+        if t.payment is not None:
+            paid, fee = t.payment.paid, t.payment.fee_amount_paise
+        else:
+            paid, fee = False, token_service.fee_due_for(clinic, t.tier, t.emergency_override)
         return QueueTokenSummary(
             token_id=t.id, display_number=t.display_number, tier=t.tier, status=t.status,
             patient_contact=t.patient_contact, emergency_override=t.emergency_override,
             joined_at=t.joined_at, called_at=t.called_at,
-            paid=t.payment.paid if t.payment is not None else False,
-            fee_amount_paise=t.payment.fee_amount_paise if t.payment is not None else None,
+            paid=paid, fee_amount_paise=fee,
         )
 
     waiting = [t for t in tokens if t.status == "waiting"]
@@ -150,9 +154,8 @@ def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(requir
 def served_today(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     """Once a token moves to 'served' it drops out of /staff/queue entirely, which left
     no way to review who was seen today or reconcile who has/hasn't paid. This is that
-    view -- a standard-tier token with no Payment row is free (0 due, not pending); a
-    priority-tier one with no Payment row is treated as pending at the clinic's current
-    priority fee, since nobody's recorded collecting it yet."""
+    view -- a served token with no Payment row yet is treated as pending at the clinic's
+    fixed fee for its tier (fees are never free -- see fee_due_for)."""
     session = _resolve_session(db, claims.clinic_id)
     clinic = db.get(Clinic, claims.clinic_id)
 
@@ -169,7 +172,7 @@ def served_today(db: Session = Depends(get_db), claims: JWTClaims = Depends(requ
         if t.payment is not None:
             paid, fee = t.payment.paid, t.payment.fee_amount_paise
         else:
-            paid, fee = False, (clinic.priority_fee_paise if t.tier == "priority" else 0)
+            paid, fee = False, token_service.fee_due_for(clinic, t.tier, t.emergency_override)
 
         served.append(ServedTokenSummary(
             token_id=t.id, display_number=t.display_number, tier=t.tier,
@@ -242,13 +245,13 @@ async def mark_served(token_id: uuid.UUID, db: Session = Depends(get_db),
 
 
 @router.post("/staff/queue/tokens/{token_id}/mark-paid")
-async def mark_paid(token_id: uuid.UUID, body: MarkPaidRequest, db: Session = Depends(get_db),
+async def mark_paid(token_id: uuid.UUID, db: Session = Depends(get_db),
                      claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    """Fee amount is computed server-side from the clinic's fixed per-tier fees, not
+    typed in by staff -- see token_service.fee_due_for."""
     _verify_token_in_clinic(db, token_id, claims.clinic_id)
     try:
-        payment = await run_in_threadpool(
-            token_service.mark_paid, db, token_id, claims.staff_id, body.fee_amount_paise
-        )
+        payment = await run_in_threadpool(token_service.mark_paid, db, token_id, claims.staff_id)
     except InvalidTransitionError as exc:
         raise APIError(409, "INVALID_TRANSITION", str(exc))
 
@@ -289,7 +292,11 @@ async def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
 
     await manager.broadcast_queue_updated(claims.clinic_id, session.id)
 
-    return {"token_id": token.id, "display_number": token.display_number, "tier": token.tier, "status": token.status}
+    clinic = db.get(Clinic, claims.clinic_id)
+    return {
+        "token_id": token.id, "display_number": token.display_number, "tier": token.tier, "status": token.status,
+        "fee_due_paise": token_service.fee_due_for(clinic, token.tier, token.emergency_override),
+    }
 
 
 @router.post("/staff/queue/emergency-override", status_code=201)
@@ -305,7 +312,11 @@ async def emergency_override(body: EmergencyOverrideRequest, db: Session = Depen
 
     await manager.broadcast_queue_updated(claims.clinic_id, session.id)
 
-    return {"token_id": token.id, "display_number": token.display_number, "emergency_override": token.emergency_override}
+    clinic = db.get(Clinic, claims.clinic_id)
+    return {
+        "token_id": token.id, "display_number": token.display_number, "emergency_override": token.emergency_override,
+        "fee_due_paise": token_service.fee_due_for(clinic, token.tier, token.emergency_override),
+    }
 
 
 @router.post("/staff/queue/tokens/{token_id}/change-tier")
@@ -367,3 +378,30 @@ async def close(db: Session = Depends(get_db), claims: JWTClaims = Depends(requi
     session = await run_in_threadpool(session_service.close_session, db, session.id)
     await manager.broadcast_queue_updated(claims.clinic_id, session.id)
     return {"session_id": session.id, "status": session.status}
+
+
+@router.get("/staff/fees", response_model=FeeConfigResponse)
+def get_fees(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    clinic = db.get(Clinic, claims.clinic_id)
+    return FeeConfigResponse(
+        standard_fee_paise=clinic.standard_fee_paise,
+        priority_fee_paise=clinic.priority_fee_paise,
+        emergency_fee_paise=clinic.emergency_fee_paise,
+    )
+
+
+@router.put("/staff/fees", response_model=FeeConfigResponse)
+def update_fees(body: FeeConfigUpdateRequest, db: Session = Depends(get_db),
+                 claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    """Receptionist/doctor/admin can all adjust the clinic's fixed per-tier fees --
+    unlike the rest of clinic config (name, ratio, timezone), which stays admin-only."""
+    clinic = db.get(Clinic, claims.clinic_id)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(clinic, field, value)
+    db.commit()
+    db.refresh(clinic)
+    return FeeConfigResponse(
+        standard_fee_paise=clinic.standard_fee_paise,
+        priority_fee_paise=clinic.priority_fee_paise,
+        emergency_fee_paise=clinic.emergency_fee_paise,
+    )

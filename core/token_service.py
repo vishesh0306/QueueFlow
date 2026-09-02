@@ -6,7 +6,18 @@ from sqlalchemy.orm import Session
 from core.clock import utcnow
 from core.exceptions import DuplicateBookingError, InvalidTransitionError, SessionClosedError
 from core.session_service import next_display_number
-from db.models import Payment, QueueSession, ServiceTimeSample, Token
+from db.models import Clinic, Payment, QueueSession, ServiceTimeSample, Token
+
+
+def fee_due_for(clinic: Clinic, tier: str, emergency_override: bool = False) -> int:
+    """Fees are fixed per tier, set by the clinic (not typed in per-transaction) --
+    emergency takes precedence over tier since an emergency-flagged token's `tier`
+    field is just cosmetic bookkeeping (see trigger_emergency_override)."""
+    if emergency_override:
+        return clinic.emergency_fee_paise
+    if tier == "priority":
+        return clinic.priority_fee_paise
+    return clinic.standard_fee_paise
 
 
 def join_queue(db: Session, session: QueueSession, patient_contact: str, tier: str,
@@ -65,15 +76,22 @@ def mark_served(db: Session, token_id: uuid.UUID) -> Token:
     return token
 
 
-def mark_paid(db: Session, token_id: uuid.UUID, collected_by: uuid.UUID, fee_amount_paise: int) -> Payment:
+def mark_paid(db: Session, token_id: uuid.UUID, collected_by: uuid.UUID) -> Payment:
+    """Fee amount is never typed in by staff -- it's computed from the clinic's fixed
+    per-tier fees (see fee_due_for), so this can't be marked paid for the wrong amount
+    or left free by mistake."""
     token = db.get(Token, token_id)
     if token.status == "cancelled":
         raise InvalidTransitionError(f"Token {token_id} is cancelled, cannot record a payment for it")
+
+    fee_amount_paise = fee_due_for(token.session.clinic, token.tier, token.emergency_override)
 
     payment = db.get(Payment, token_id)
     if payment is None:
         payment = Payment(token_id=token_id, fee_amount_paise=fee_amount_paise)
         db.add(payment)
+    else:
+        payment.fee_amount_paise = fee_amount_paise
     payment.paid = True
     payment.collected_by = collected_by
     payment.collected_at = utcnow()

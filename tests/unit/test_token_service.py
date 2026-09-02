@@ -8,6 +8,7 @@ from core.queue_engine import call_next
 from core.token_service import (
     cancel_token,
     change_tier,
+    fee_due_for,
     join_queue,
     mark_paid,
     mark_served,
@@ -93,25 +94,37 @@ def test_mark_paid_rejects_a_cancelled_token(db):
     cancel_token(db, token.id)
 
     with pytest.raises(InvalidTransitionError):
-        mark_paid(db, token.id, uuid.uuid4(), 20000)
+        mark_paid(db, token.id, uuid.uuid4())
 
 
-def test_mark_paid_succeeds_for_a_called_token(db):
+def test_mark_paid_charges_the_clinics_fixed_fee_for_the_tokens_tier(db):
     session = _make_clinic_session(db)
     token = join_queue(db, session, "telegram:12345", "standard")
     call_next(db, session.id)
 
-    payment = mark_paid(db, token.id, session.doctor_id, 20000)
+    payment = mark_paid(db, token.id, session.doctor_id)
 
     assert payment.paid is True
-    assert payment.fee_amount_paise == 20000
+    assert payment.fee_amount_paise == session.clinic.standard_fee_paise
+
+
+def test_mark_paid_charges_the_emergency_fee_for_an_emergency_flagged_token(db):
+    from core.queue_engine import trigger_emergency_override
+
+    session = _make_clinic_session(db)
+    token = trigger_emergency_override(db, session.id, "telegram:emergency")
+    call_next(db, session.id)
+
+    payment = mark_paid(db, token.id, session.doctor_id)
+
+    assert payment.fee_amount_paise == session.clinic.emergency_fee_paise
 
 
 def test_void_payment_reverses_a_paid_status(db):
     session = _make_clinic_session(db)
     token = join_queue(db, session, "telegram:12345", "standard")
     call_next(db, session.id)
-    mark_paid(db, token.id, session.doctor_id, 20000)
+    mark_paid(db, token.id, session.doctor_id)
 
     voided = void_payment(db, token.id)
 
@@ -133,11 +146,32 @@ def test_void_payment_rejects_voiding_an_already_voided_payment(db):
     session = _make_clinic_session(db)
     token = join_queue(db, session, "telegram:12345", "standard")
     call_next(db, session.id)
-    mark_paid(db, token.id, session.doctor_id, 20000)
+    mark_paid(db, token.id, session.doctor_id)
     void_payment(db, token.id)
 
     with pytest.raises(InvalidTransitionError):
         void_payment(db, token.id)
+
+
+def test_fee_due_for_prefers_emergency_over_tier(db):
+    session = _make_clinic_session(db)
+    clinic = session.clinic
+
+    assert fee_due_for(clinic, "standard", emergency_override=False) == clinic.standard_fee_paise
+    assert fee_due_for(clinic, "priority", emergency_override=False) == clinic.priority_fee_paise
+    # Emergency wins even if the token's tier field still says "standard" (see
+    # trigger_emergency_override, which never touches tier).
+    assert fee_due_for(clinic, "standard", emergency_override=True) == clinic.emergency_fee_paise
+    assert fee_due_for(clinic, "priority", emergency_override=True) == clinic.emergency_fee_paise
+
+
+def test_no_tier_is_ever_free_by_default(db):
+    session = _make_clinic_session(db)
+    clinic = session.clinic
+
+    assert clinic.standard_fee_paise > 0
+    assert clinic.priority_fee_paise > 0
+    assert clinic.emergency_fee_paise > 0
 
 
 def test_update_contact_fixes_a_mistyped_value(db):

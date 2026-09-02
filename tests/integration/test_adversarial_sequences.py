@@ -124,8 +124,8 @@ def test_mark_paid_twice_does_not_duplicate_or_error(db):
     a = _join(db, session, "t:a")
     call_next(db, session.id)
 
-    first = mark_paid(db, a.id, collected_by=None, fee_amount_paise=20000)
-    second = mark_paid(db, a.id, collected_by=None, fee_amount_paise=20000)
+    first = mark_paid(db, a.id, collected_by=None)
+    second = mark_paid(db, a.id, collected_by=None)
 
     assert first.token_id == second.token_id
     assert second.paid is True

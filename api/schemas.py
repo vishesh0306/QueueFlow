@@ -57,7 +57,7 @@ class QueueTokenSummary(BaseModel):
     joined_at: datetime
     called_at: datetime | None
     paid: bool
-    fee_amount_paise: int | None
+    fee_amount_paise: int
 
 
 class QueueListResponse(BaseModel):
@@ -99,10 +99,6 @@ class WalkInRequest(BaseModel):
 
 class EmergencyOverrideRequest(BaseModel):
     patient_contact: PatientContact
-
-
-class MarkPaidRequest(BaseModel):
-    fee_amount_paise: int = Field(ge=0)
 
 
 class ChangeTierRequest(BaseModel):
@@ -148,6 +144,18 @@ class ClinicConfigUpdateRequest(BaseModel):
     standard_priority_ratio: str | None = None
     notify_lead_count: int | None = None
     timezone: str | None = None
+
+
+class FeeConfigResponse(BaseModel):
+    standard_fee_paise: int
+    priority_fee_paise: int
+    emergency_fee_paise: int
+
+
+class FeeConfigUpdateRequest(BaseModel):
+    standard_fee_paise: int | None = Field(default=None, ge=0)
+    priority_fee_paise: int | None = Field(default=None, ge=0)
+    emergency_fee_paise: int | None = Field(default=None, ge=0)
 
 
 class StaffCreateRequest(BaseModel):

@@ -131,7 +131,7 @@ def test_call_next_on_empty_queue_returns_queue_empty_error(client, db):
     assert response.json()["error"]["code"] == "QUEUE_EMPTY"
 
 
-def test_mark_paid_rejects_a_negative_fee_amount(client, db):
+def test_mark_paid_charges_the_clinics_fixed_fee_automatically(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")
     join_resp = client.post(
@@ -141,12 +141,9 @@ def test_mark_paid_rejects_a_negative_fee_amount(client, db):
     token_id = join_resp.json()["token_id"]
     client.post("/staff/queue/call-next", headers=_auth(staff_token))
 
-    resp = client.post(
-        f"/staff/queue/tokens/{token_id}/mark-paid",
-        json={"fee_amount_paise": -100},
-        headers=_auth(staff_token),
-    )
-    assert resp.status_code == 422
+    resp = client.post(f"/staff/queue/tokens/{token_id}/mark-paid", headers=_auth(staff_token))
+    assert resp.status_code == 200
+    assert resp.json()["fee_amount_paise"] == clinic.standard_fee_paise
 
 
 def test_mark_paid_rejects_a_cancelled_token(client, db):
@@ -159,11 +156,7 @@ def test_mark_paid_rejects_a_cancelled_token(client, db):
     token_id = join_resp.json()["token_id"]
     client.delete(f"/queue/tokens/{token_id}")
 
-    resp = client.post(
-        f"/staff/queue/tokens/{token_id}/mark-paid",
-        json={"fee_amount_paise": 20000},
-        headers=_auth(staff_token),
-    )
+    resp = client.post(f"/staff/queue/tokens/{token_id}/mark-paid", headers=_auth(staff_token))
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
 
@@ -340,22 +333,18 @@ def test_served_today_reports_paid_and_pending_patients(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")
 
-    # Priority patient: served and paid.
+    # Priority patient: served and paid (fee charged automatically, no amount typed in).
     join_a = client.post(
         f"/clinics/{clinic.id}/queue/join",
         json={"patient_contact": {"type": "email", "value": "paid@b.com"}, "tier": "priority"},
     )
     token_a = join_a.json()["token_id"]
     client.post("/staff/queue/call-next", headers=_auth(staff_token))
-    client.post(
-        f"/staff/queue/tokens/{token_a}/mark-paid",
-        json={"fee_amount_paise": clinic.priority_fee_paise},
-        headers=_auth(staff_token),
-    )
+    client.post(f"/staff/queue/tokens/{token_a}/mark-paid", headers=_auth(staff_token))
     client.post(f"/staff/queue/tokens/{token_a}/mark-served", headers=_auth(staff_token))
 
     # Priority patient: served but never marked paid -- should count as pending at the
-    # clinic's priority fee, not as free.
+    # clinic's priority fee.
     join_b = client.post(
         f"/clinics/{clinic.id}/queue/join",
         json={"patient_contact": {"type": "email", "value": "unpaid@b.com"}, "tier": "priority"},
@@ -364,10 +353,11 @@ def test_served_today_reports_paid_and_pending_patients(client, db):
     client.post("/staff/queue/call-next", headers=_auth(staff_token))
     client.post(f"/staff/queue/tokens/{token_b}/mark-served", headers=_auth(staff_token))
 
-    # Standard patient: served, free -- should not appear in pending at all.
+    # Standard patient: served, never marked paid -- also pending, at the standard fee
+    # (no tier is free any more).
     join_c = client.post(
         f"/clinics/{clinic.id}/queue/join",
-        json={"patient_contact": {"type": "email", "value": "free@b.com"}, "tier": "standard"},
+        json={"patient_contact": {"type": "email", "value": "standard@b.com"}, "tier": "standard"},
     )
     token_c = join_c.json()["token_id"]
     client.post("/staff/queue/call-next", headers=_auth(staff_token))
@@ -384,10 +374,10 @@ def test_served_today_reports_paid_and_pending_patients(client, db):
     assert served_by_id[token_b]["paid"] is False
     assert served_by_id[token_b]["fee_amount_paise"] == clinic.priority_fee_paise
     assert served_by_id[token_c]["paid"] is False
-    assert served_by_id[token_c]["fee_amount_paise"] == 0
+    assert served_by_id[token_c]["fee_amount_paise"] == clinic.standard_fee_paise
 
     assert body["total_collected_paise"] == clinic.priority_fee_paise
-    assert body["total_pending_paise"] == clinic.priority_fee_paise  # only token_b -- token_c is free
+    assert body["total_pending_paise"] == clinic.priority_fee_paise + clinic.standard_fee_paise
 
 
 def test_served_today_excludes_waiting_and_called_tokens(client, db):
@@ -412,15 +402,11 @@ def test_staff_can_void_a_payment(client, db):
     )
     token_id = join_resp.json()["token_id"]
     client.post("/staff/queue/call-next", headers=_auth(staff_token))
-    client.post(
-        f"/staff/queue/tokens/{token_id}/mark-paid",
-        json={"fee_amount_paise": 20000},
-        headers=_auth(staff_token),
-    )
+    client.post(f"/staff/queue/tokens/{token_id}/mark-paid", headers=_auth(staff_token))
 
     queue_before = client.get("/staff/queue", headers=_auth(staff_token)).json()
     assert queue_before["called"][0]["paid"] is True
-    assert queue_before["called"][0]["fee_amount_paise"] == 20000
+    assert queue_before["called"][0]["fee_amount_paise"] == clinic.standard_fee_paise
 
     void_resp = client.post(f"/staff/queue/tokens/{token_id}/void-payment", headers=_auth(staff_token))
     assert void_resp.status_code == 200
@@ -442,6 +428,49 @@ def test_void_payment_rejects_a_token_with_no_payment(client, db):
     resp = client.post(f"/staff/queue/tokens/{token_id}/void-payment", headers=_auth(staff_token))
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
+
+
+def test_receptionist_can_view_and_edit_fees(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    receptionist = StaffAccount(
+        clinic_id=clinic.id, name="Reception", role="receptionist", contact="reception@e2e.local",
+        password_hash=bcrypt.hashpw(b"x", bcrypt.gensalt()).decode(),
+    )
+    db.add(receptionist)
+    db.commit()
+    staff_token = create_access_token(receptionist.id, clinic.id, "receptionist")
+
+    get_resp = client.get("/staff/fees", headers=_auth(staff_token))
+    assert get_resp.status_code == 200
+    assert get_resp.json() == {
+        "standard_fee_paise": clinic.standard_fee_paise,
+        "priority_fee_paise": clinic.priority_fee_paise,
+        "emergency_fee_paise": clinic.emergency_fee_paise,
+    }
+
+    put_resp = client.put(
+        "/staff/fees",
+        json={"standard_fee_paise": 60000},
+        headers=_auth(staff_token),
+    )
+    assert put_resp.status_code == 200
+    body = put_resp.json()
+    assert body["standard_fee_paise"] == 60000
+    # Untouched fields stay as they were -- this is a partial update.
+    assert body["priority_fee_paise"] == clinic.priority_fee_paise
+    assert body["emergency_fee_paise"] == clinic.emergency_fee_paise
+
+
+def test_updated_fee_is_reflected_in_a_fresh_joins_fee_due(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    client.put("/staff/fees", json={"standard_fee_paise": 70000}, headers=_auth(staff_token))
+
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    assert join_resp.json()["fee_due_paise"] == 70000
 
 
 def test_no_show_swap_via_api(client, db):

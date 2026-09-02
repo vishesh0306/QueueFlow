@@ -38,10 +38,12 @@ def _endpoints(clinic_id: uuid.UUID):
     return [
         ("get", "/staff/queue", None, ROLES),
         ("get", "/staff/queue/served-today", None, ROLES),
+        ("get", "/staff/fees", None, ROLES),
+        ("put", "/staff/fees", {"standard_fee_paise": 50000}, ROLES),
         ("post", "/staff/queue/call-next", {}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/no-show", {}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/mark-served", {}, ROLES),
-        ("post", f"/staff/queue/tokens/{dummy_token_id}/mark-paid", {"fee_amount_paise": 0}, ROLES),
+        ("post", f"/staff/queue/tokens/{dummy_token_id}/mark-paid", {}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/void-payment", {}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/change-tier", {"tier": "priority"}, ROLES),
         ("post", f"/staff/queue/tokens/{dummy_token_id}/update-contact",

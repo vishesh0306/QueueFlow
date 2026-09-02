@@ -81,6 +81,17 @@
         <button type="submit" class="danger">Insert emergency</button>
       </form>
     </div>
+
+    <div class="card">
+      <h3>Fees (₹)</h3>
+      <form id="fees-form">
+        <label>Standard <input type="number" id="fee-standard" min="0" step="0.01" required></label>
+        <label>Priority <input type="number" id="fee-priority" min="0" step="0.01" required></label>
+        <label>Emergency <input type="number" id="fee-emergency" min="0" step="0.01" required></label>
+        <button type="submit">Save fees</button>
+        <span id="fees-saved" class="copy-confirm hidden">Saved!</span>
+      </form>
+    </div>
   </section>
 
   <section class="waiting-section">

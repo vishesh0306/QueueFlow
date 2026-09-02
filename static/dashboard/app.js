@@ -73,6 +73,22 @@ function showDashboard() {
   document.getElementById("close-reopen-btn").classList.toggle("hidden", !isPrivilegedRole());
   connectWebSocket();
   refreshQueue();
+  loadFees();
+}
+
+// ---- Fees -------------------------------------------------------------
+// Editable by any staff role (receptionist/doctor/admin), unlike the rest of clinic
+// config -- a real form rather than prompt() for a value staff will want to double-check.
+
+async function loadFees() {
+  try {
+    const fees = await apiFetch("/staff/fees");
+    document.getElementById("fee-standard").value = paiseToRupees(fees.standard_fee_paise);
+    document.getElementById("fee-priority").value = paiseToRupees(fees.priority_fee_paise);
+    document.getElementById("fee-emergency").value = paiseToRupees(fees.emergency_fee_paise);
+  } catch (err) {
+    showBanner(err.message);
+  }
 }
 
 function patientLinkForThisClinic() {
@@ -164,7 +180,7 @@ function renderCalled(tokens) {
   for (const token of tokens) {
     const paidControl = token.paid
       ? `<span class="paid-badge">Paid ✓ ₹${paiseToRupees(token.fee_amount_paise)}</span> <button data-action="void-payment" data-id="${token.token_id}" class="secondary">Void</button>`
-      : `<button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Paid</button>`;
+      : `<button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Mark paid ₹${paiseToRupees(token.fee_amount_paise)}</button>`;
     const row = tokenRow(token, `
       <button data-action="mark-served" data-id="${token.token_id}">Served</button>
       ${paidControl}
@@ -236,10 +252,8 @@ function renderServed(data) {
       const paymentCell = token.paid
         ? `<span class="paid-badge">Paid ✓ ₹${paiseToRupees(token.fee_amount_paise)}</span>
            <button data-action="void-payment" data-id="${token.token_id}" class="secondary">Void</button>`
-        : token.fee_amount_paise > 0
-          ? `<span class="pending-badge">Pending ₹${paiseToRupees(token.fee_amount_paise)}</span>
-             <button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Paid</button>`
-          : `<span class="free-badge">Free</span>`;
+        : `<span class="pending-badge">Pending ₹${paiseToRupees(token.fee_amount_paise)}</span>
+           <button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Mark paid</button>`;
       tr.innerHTML = `
         <td>${escapeHtml(token.display_number) || "-"}</td>
         <td>${escapeHtml(token.tier)}</td>
@@ -291,12 +305,9 @@ async function handleTokenAction(action, tokenId, dataset = {}) {
     } else if (action === "mark-served") {
       await apiFetch(`/staff/queue/tokens/${tokenId}/mark-served`, { method: "POST" });
     } else if (action === "mark-paid") {
-      const amount = prompt("Fee amount in ₹ (rupees):", "0");
-      if (amount === null) return;
-      await apiFetch(`/staff/queue/tokens/${tokenId}/mark-paid`, {
-        method: "POST",
-        body: JSON.stringify({ fee_amount_paise: rupeesToPaise(amount) }),
-      });
+      // Fee amount is fixed per tier (see the Fees section) and computed server-side --
+      // nothing to type in here.
+      await apiFetch(`/staff/queue/tokens/${tokenId}/mark-paid`, { method: "POST" });
     } else if (action === "change-tier") {
       await apiFetch(`/staff/queue/tokens/${tokenId}/change-tier`, {
         method: "POST",
@@ -425,6 +436,26 @@ document.getElementById("override-form").addEventListener("submit", async (e) =>
       }),
     });
     e.target.reset();
+    refreshQueue();
+  } catch (err) {
+    showBanner(err.message);
+  }
+});
+
+document.getElementById("fees-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await apiFetch("/staff/fees", {
+      method: "PUT",
+      body: JSON.stringify({
+        standard_fee_paise: rupeesToPaise(document.getElementById("fee-standard").value),
+        priority_fee_paise: rupeesToPaise(document.getElementById("fee-priority").value),
+        emergency_fee_paise: rupeesToPaise(document.getElementById("fee-emergency").value),
+      }),
+    });
+    const savedEl = document.getElementById("fees-saved");
+    savedEl.classList.remove("hidden");
+    setTimeout(() => savedEl.classList.add("hidden"), 2000);
     refreshQueue();
   } catch (err) {
     showBanner(err.message);

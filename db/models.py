@@ -41,7 +41,9 @@ class Clinic(Base):
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    priority_fee_paise: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    standard_fee_paise: Mapped[int] = mapped_column(Integer, nullable=False, default=50000)
+    priority_fee_paise: Mapped[int] = mapped_column(Integer, nullable=False, default=80000)
+    emergency_fee_paise: Mapped[int] = mapped_column(Integer, nullable=False, default=120000)
     standard_priority_ratio: Mapped[str] = mapped_column(
         String(10), nullable=False, default="2:1"
     )
