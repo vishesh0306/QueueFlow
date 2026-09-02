@@ -29,6 +29,7 @@ from core.exceptions import (
     SessionClosedError,
     SessionNotActiveError,
 )
+from core.interleave import parse_ratio, predict_call_order
 from db.models import Clinic, QueueSession, StaffAccount, Token
 from db.session import get_db
 from ws.gateway import manager
@@ -106,6 +107,7 @@ def signup(body: SignupRequest, db: Session = Depends(get_db)):
 @router.get("/staff/queue", response_model=QueueListResponse)
 def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
     session = _resolve_session(db, claims.clinic_id)
+    clinic = db.get(Clinic, claims.clinic_id)
 
     tokens = db.execute(
         select(Token)
@@ -120,11 +122,20 @@ def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(requir
             joined_at=t.joined_at, called_at=t.called_at,
         )
 
+    waiting = [t for t in tokens if t.status == "waiting"]
+    waiting_by_tier = {
+        "emergency": [t for t in waiting if t.emergency_override],
+        "priority": [t for t in waiting if t.tier == "priority" and not t.emergency_override],
+        "standard": [t for t in waiting if t.tier == "standard" and not t.emergency_override],
+    }
+    ratio = parse_ratio(clinic.standard_priority_ratio)
+    ordered_waiting = predict_call_order(waiting_by_tier, session.call_counter, ratio)
+
     return QueueListResponse(
         session_id=session.id,
         session_status=session.status,
         called=[_summary(t) for t in tokens if t.status == "called"],
-        waiting=[_summary(t) for t in tokens if t.status == "waiting"],
+        waiting=[_summary(t) for t in ordered_waiting],
     )
 
 

@@ -135,23 +135,27 @@ function renderCalled(tokens) {
 }
 
 function renderWaiting(tokens) {
+  // The server already returns this list in true predicted call order (what
+  // call-next would actually do next), not raw join order -- the index here is
+  // literally "how many more calls until this patient," so it's shown as-is.
   const body = document.getElementById("waiting-body");
   body.innerHTML = "";
   if (tokens.length === 0) {
-    body.innerHTML = '<tr><td colspan="4" class="empty-state">Queue is empty.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty-state">Queue is empty.</td></tr>';
     return;
   }
-  for (const token of tokens) {
+  tokens.forEach((token, index) => {
     const tr = document.createElement("tr");
     const joined = new Date(token.joined_at).toLocaleTimeString();
     tr.innerHTML = `
+      <td>${index + 1}</td>
       <td>${token.display_number || "-"}</td>
       <td>${token.tier}${token.emergency_override ? " (EMERGENCY)" : ""}</td>
       <td>${token.patient_contact}</td>
       <td>${joined}</td>
     `;
     body.appendChild(tr);
-  }
+  });
 }
 
 function renderSessionStatus(status) {
