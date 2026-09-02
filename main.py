@@ -27,3 +27,6 @@ def health():
 
 app.mount("/dashboard", StaticFiles(directory="static/dashboard", html=True), name="dashboard")
 app.mount("/patient-app", StaticFiles(directory="static/patient", html=True), name="patient-app")
+app.mount("/signup", StaticFiles(directory="static/signup", html=True), name="signup")
+# Mounted last, at the root prefix, so it only catches what nothing above already matched.
+app.mount("/", StaticFiles(directory="static/home", html=True), name="home")

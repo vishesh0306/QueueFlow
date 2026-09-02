@@ -88,6 +88,13 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class SignupRequest(BaseModel):
+    clinic_name: str
+    admin_name: str
+    admin_contact: str
+    admin_password: str
+
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QueueFlow — Set up your clinic</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="signup-screen">
+  <form id="signup-form">
+    <a href="/" class="back-link">← Home</a>
+    <h1>Set up your clinic</h1>
+    <p class="subtitle">Creates your clinic and an admin account in one step.</p>
+
+    <label>Clinic name
+      <input type="text" id="clinic-name" required>
+    </label>
+    <label>Your name
+      <input type="text" id="admin-name" required>
+    </label>
+    <label>Contact (used to sign in)
+      <input type="text" id="admin-contact" placeholder="email or phone" required>
+    </label>
+    <label>Password
+      <input type="password" id="admin-password" required minlength="1">
+    </label>
+
+    <button type="submit">Create clinic</button>
+    <p id="signup-error" class="error"></p>
+    <p class="switch-link">Already have an account? <a href="/dashboard/">Sign in</a></p>
+  </form>
+</div>
+
+<div id="success-screen" class="hidden">
+  <div class="success-card">
+    <span class="success-icon">✅</span>
+    <h1>Clinic created</h1>
+    <p class="subtitle">Redirecting you to the staff dashboard…</p>
+
+    <div class="clinic-id-block">
+      <p class="clinic-id-label">Your clinic ID (patients use this to join)</p>
+      <code id="clinic-id-value"></code>
+    </div>
+    <p class="patient-link-hint">Patient join link: <code id="patient-link-value"></code></p>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

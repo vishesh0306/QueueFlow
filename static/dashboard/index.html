@@ -10,6 +10,7 @@
 
 <div id="login-screen">
   <form id="login-form">
+    <a href="/" class="back-link">← Home</a>
     <h1>QueueFlow</h1>
     <p class="subtitle">Staff sign-in</p>
     <label>Contact
@@ -20,6 +21,7 @@
     </label>
     <button type="submit">Sign in</button>
     <p id="login-error" class="error"></p>
+    <p class="switch-link">New clinic? <a href="/signup/">Sign up</a></p>
   </form>
 </div>
 
@@ -30,7 +32,7 @@
       <span id="session-status" class="badge"></span>
     </div>
     <div>
-      <button id="pause-resume-btn" class="hidden secondary"></button>
+      <button id="pause-resume-btn" class="hidden secondary">Pause queue</button>
       <button id="logout-btn" class="secondary">Log out</button>
     </div>
   </header>

@@ -4,6 +4,7 @@ import bcrypt
 from fastapi import APIRouter, Depends
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.deps import APIError, JWTClaims, create_access_token, require_role
@@ -16,17 +17,19 @@ from api.schemas import (
     NoShowResponse,
     QueueListResponse,
     QueueTokenSummary,
+    SignupRequest,
     WalkInRequest,
 )
 from core import queue_engine, session_service, token_service
 from core.exceptions import (
     InvalidTransitionError,
+    NoDoctorConfiguredError,
     PatientAlreadyCalledError,
     QueueEmptyError,
     SessionClosedError,
     SessionNotActiveError,
 )
-from db.models import QueueSession, StaffAccount, Token
+from db.models import Clinic, QueueSession, StaffAccount, Token
 from db.session import get_db
 from ws.gateway import manager
 
@@ -46,6 +49,20 @@ def _verify_token_in_clinic(db: Session, token_id: uuid.UUID, clinic_id: uuid.UU
         raise APIError(404, "TOKEN_NOT_FOUND", "No such token.")
 
 
+def _resolve_session(db: Session, clinic_id: uuid.UUID) -> QueueSession:
+    """Every queue-control action needs today's session, which needs a doctor account to
+    exist first (see get_or_create_active_session). A freshly signed-up clinic has an
+    admin but no doctor yet -- without this, every one of these routes would crash with
+    an unhandled 500 the moment a new admin's dashboard loads."""
+    try:
+        return session_service.get_or_create_active_session(db, clinic_id)
+    except NoDoctorConfiguredError:
+        raise APIError(
+            409, "NO_DOCTOR_CONFIGURED",
+            "This clinic has no doctor account yet. Add one under Admin > Staff before running the queue.",
+        )
+
+
 @router.post("/staff/login", response_model=LoginResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     staff = db.execute(
@@ -58,9 +75,37 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     return LoginResponse(access_token=token, role=staff.role, clinic_id=staff.clinic_id)
 
 
+@router.post("/staff/signup", response_model=LoginResponse, status_code=201)
+def signup(body: SignupRequest, db: Session = Depends(get_db)):
+    """Creates a brand-new clinic plus its first staff account (admin), and logs them
+    straight in. This is the only way a clinic comes into existence in v1 -- every other
+    admin/staff-management action requires an already-authenticated admin, so this has
+    to be the one unauthenticated bootstrap path."""
+    clinic = Clinic(name=body.clinic_name)
+    db.add(clinic)
+    db.flush()
+
+    admin = StaffAccount(
+        clinic_id=clinic.id,
+        name=body.admin_name,
+        role="admin",
+        contact=body.admin_contact,
+        password_hash=bcrypt.hashpw(body.admin_password.encode(), bcrypt.gensalt()).decode(),
+    )
+    db.add(admin)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise APIError(409, "CONTACT_TAKEN", "That contact is already registered to a staff account.")
+
+    token = create_access_token(admin.id, clinic.id, admin.role)
+    return LoginResponse(access_token=token, role=admin.role, clinic_id=clinic.id)
+
+
 @router.get("/staff/queue", response_model=QueueListResponse)
 def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
-    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+    session = _resolve_session(db, claims.clinic_id)
 
     tokens = db.execute(
         select(Token)
@@ -85,7 +130,7 @@ def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(requir
 
 @router.post("/staff/queue/call-next", response_model=CallNextResponse)
 async def call_next(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
-    session = await run_in_threadpool(session_service.get_or_create_active_session, db, claims.clinic_id)
+    session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
     try:
         token = await run_in_threadpool(queue_engine.call_next, db, session.id)
     except QueueEmptyError:
@@ -145,7 +190,7 @@ def mark_paid(token_id: uuid.UUID, body: MarkPaidRequest, db: Session = Depends(
 @router.post("/staff/queue/walk-in", status_code=201)
 def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
             claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
-    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+    session = _resolve_session(db, claims.clinic_id)
     try:
         token = token_service.join_queue(
             db, session, body.patient_contact.as_column_value(), body.tier, body.patient_email
@@ -159,20 +204,20 @@ def walk_in(body: WalkInRequest, db: Session = Depends(get_db),
 @router.post("/staff/queue/emergency-override", status_code=201)
 def emergency_override(body: EmergencyOverrideRequest, db: Session = Depends(get_db),
                         claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
-    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+    session = _resolve_session(db, claims.clinic_id)
     token = queue_engine.trigger_emergency_override(db, session.id, body.patient_contact.as_column_value())
     return {"token_id": token.id, "display_number": token.display_number, "emergency_override": token.emergency_override}
 
 
 @router.post("/staff/queue/pause")
 def pause(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
-    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+    session = _resolve_session(db, claims.clinic_id)
     session = session_service.pause_session(db, session.id)
     return {"session_id": session.id, "status": session.status}
 
 
 @router.post("/staff/queue/resume")
 def resume(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
-    session = session_service.get_or_create_active_session(db, claims.clinic_id)
+    session = _resolve_session(db, claims.clinic_id)
     session = session_service.resume_session(db, session.id)
     return {"session_id": session.id, "status": session.status}

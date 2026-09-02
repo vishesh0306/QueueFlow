@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 from core.queue_engine import trigger_emergency_override
@@ -10,7 +11,8 @@ def _make_clinic_session(db):
     db.add(clinic)
     db.flush()
     doctor = StaffAccount(
-        clinic_id=clinic.id, name="Dr. Test", role="doctor", contact="doc@test", password_hash="x"
+        clinic_id=clinic.id, name="Dr. Test", role="doctor",
+        contact=f"doc-{uuid.uuid4()}@test", password_hash="x",
     )
     db.add(doctor)
     db.flush()

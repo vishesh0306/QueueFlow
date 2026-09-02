@@ -78,6 +78,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .error { color: var(--danger); font-size: 13px; min-height: 16px; margin: 0; }
 
+.back-link { font-size: 13px; color: var(--muted); text-decoration: none; margin-bottom: 8px; display: inline-block; }
+.back-link:hover { color: var(--accent); }
+.switch-link { font-size: 13px; color: var(--muted); text-align: center; margin: 4px 0 0; }
+.switch-link a { color: var(--accent); text-decoration: none; }
+.switch-link a:hover { text-decoration: underline; }
+
 /* Dashboard */
 #dashboard-screen { max-width: 900px; margin: 0 auto; padding: 20px; }
 

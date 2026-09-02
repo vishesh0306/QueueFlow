@@ -55,7 +55,6 @@ class Clinic(Base):
 
 class StaffAccount(Base):
     __tablename__ = "staff_accounts"
-    __table_args__ = (UniqueConstraint("clinic_id", "contact"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
@@ -65,7 +64,11 @@ class StaffAccount(Base):
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     role: Mapped[str] = mapped_column(StaffRole, nullable=False)
-    contact: Mapped[str] = mapped_column(String(120), nullable=False)
+    # Globally unique, not just per-clinic: login looks a staff account up by contact
+    # alone with no clinic scoping (the caller doesn't know their clinic_id yet at
+    # login time), so two clinics picking the same contact string would otherwise
+    # make that lookup ambiguous.
+    contact: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
