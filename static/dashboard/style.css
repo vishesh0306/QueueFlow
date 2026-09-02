@@ -105,6 +105,7 @@ header > div { display: flex; align-items: center; gap: 10px; }
   font-weight: 600;
 }
 .badge.paused { background: #fef3c7; color: var(--warn); }
+.badge.closed { background: #e5e7eb; color: var(--muted); }
 
 .banner {
   background: #fee2e2;

@@ -24,8 +24,10 @@ class NoDoctorConfiguredError(Exception):
 
 
 class SessionNotActiveError(Exception):
-    """Raised when call_next() is attempted on a paused/closed session (emergency-override
-    tokens bypass this — a genuine urgent case shouldn't have to wait on a lunch-break pause)."""
+    """Raised when call_next() is attempted on a paused session (emergency-override tokens
+    bypass this — a genuine urgent case shouldn't have to wait on a lunch-break pause).
+    A CLOSED session does NOT raise this -- closing only stops new joins, staff can still
+    call through whoever's already waiting."""
 
     def __init__(self, session_id: uuid.UUID, status: str):
         super().__init__(f"Session {session_id} is '{status}', not accepting call-next right now")

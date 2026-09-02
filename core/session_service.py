@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from core.clock import today_in
+from core.clock import today_in, utcnow
 from core.exceptions import NoDoctorConfiguredError
 from db.models import Clinic, QueueSession, StaffAccount
 
@@ -58,8 +58,21 @@ def pause_session(db: Session, session_id: uuid.UUID) -> QueueSession:
 
 
 def resume_session(db: Session, session_id: uuid.UUID) -> QueueSession:
+    """Also doubles as "reopen": a session previously closed for the day goes straight
+    back to active, the same as one that was merely paused."""
     session = db.execute(select(QueueSession).where(QueueSession.id == session_id).with_for_update()).scalar_one()
     session.status = "active"
+    db.commit()
+    return session
+
+
+def close_session(db: Session, session_id: uuid.UUID) -> QueueSession:
+    """End-of-day close: stops new joins/walk-ins (see join_queue's SessionClosedError
+    check) but does NOT stop call_next -- staff can keep working through whoever's
+    already waiting until the queue actually drains. Reopen via resume_session."""
+    session = db.execute(select(QueueSession).where(QueueSession.id == session_id).with_for_update()).scalar_one()
+    session.status = "closed"
+    session.closed_at = utcnow()
     db.commit()
     return session
 

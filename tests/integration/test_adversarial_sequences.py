@@ -2,9 +2,9 @@ from datetime import date
 
 import pytest
 
-from core.exceptions import InvalidTransitionError, SessionNotActiveError
+from core.exceptions import InvalidTransitionError, SessionClosedError, SessionNotActiveError
 from core.queue_engine import call_next, handle_no_show, trigger_emergency_override
-from core.session_service import pause_session, resume_session
+from core.session_service import close_session, pause_session, resume_session
 from core.token_service import cancel_token, join_queue, mark_paid, mark_served
 from db.models import Clinic, QueueSession, StaffAccount, Token
 
@@ -192,9 +192,41 @@ def test_emergency_override_bypasses_pause(db):
 
 def test_join_still_works_while_paused(db):
     """Pausing stops new calls, but the queue itself should keep accepting joiners --
-    only SessionClosedError (a different, currently-unreachable state) blocks joining."""
+    only a closed session (see close_session below) blocks joining."""
     session = _make_session(db)
     pause_session(db, session.id)
+
+    token = join_queue(db, session, "t:a", "standard")
+
+    assert token.status == "waiting"
+
+
+# ---- Closing stops new joins, but not calling the ones already waiting ----
+
+def test_close_blocks_new_joins(db):
+    session = _make_session(db)
+    close_session(db, session.id)
+
+    with pytest.raises(SessionClosedError):
+        join_queue(db, session, "t:late", "standard")
+
+
+def test_call_next_keeps_working_after_close(db):
+    """Unlike pause, closing shouldn't stall the doctor mid-shift -- everyone already
+    waiting should still get called, just nobody new can join."""
+    session = _make_session(db)
+    a = _join(db, session, "t:a")
+    close_session(db, session.id)
+
+    called = call_next(db, session.id)
+
+    assert called.id == a.id
+
+
+def test_resume_reopens_a_closed_session(db):
+    session = _make_session(db)
+    close_session(db, session.id)
+    resume_session(db, session.id)
 
     token = join_queue(db, session, "t:a", "standard")
 

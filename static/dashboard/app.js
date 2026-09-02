@@ -57,7 +57,7 @@ function showDashboard() {
   document.getElementById("clinic-role").textContent = `Signed in as ${state.role}`;
   document.getElementById("clinic-id-display").textContent = state.clinicId;
   document.getElementById("override-card").classList.toggle("hidden", !isPrivilegedRole());
-  document.getElementById("pause-resume-btn").classList.toggle("hidden", !isPrivilegedRole());
+  document.getElementById("close-reopen-btn").classList.toggle("hidden", !isPrivilegedRole());
   connectWebSocket();
   refreshQueue();
 }
@@ -177,10 +177,19 @@ function renderSessionStatus(status) {
   const badge = document.getElementById("session-status");
   badge.textContent = status;
   badge.classList.toggle("paused", status === "paused");
+  badge.classList.toggle("closed", status === "closed");
 
+  // Pausing a closed session would be a no-op that's easy to misread as "reopened,"
+  // since join_queue only checks for status === "closed" -- so pause/resume is hidden
+  // once closed; the close/reopen button becomes the only way back to active.
   const pauseBtn = document.getElementById("pause-resume-btn");
+  pauseBtn.classList.toggle("hidden", status === "closed" || !isPrivilegedRole());
   pauseBtn.textContent = status === "paused" ? "Resume queue" : "Pause queue";
   pauseBtn.dataset.action = status === "paused" ? "resume" : "pause";
+
+  const closeBtn = document.getElementById("close-reopen-btn");
+  closeBtn.textContent = status === "closed" ? "Reopen for today" : "Close for today";
+  closeBtn.dataset.action = status === "closed" ? "resume" : "close";
 }
 
 async function refreshQueue() {
@@ -276,6 +285,10 @@ document.getElementById("copy-patient-link-btn").addEventListener("click", async
 });
 
 document.getElementById("pause-resume-btn").addEventListener("click", (e) => {
+  togglePauseResume(e.target.dataset.action);
+});
+
+document.getElementById("close-reopen-btn").addEventListener("click", (e) => {
   togglePauseResume(e.target.dataset.action);
 });
 

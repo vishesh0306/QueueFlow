@@ -92,9 +92,11 @@ def call_next(db: Session, session_id: uuid.UUID) -> Token:
     is_emergency_pick = token is not None
 
     # 2. Otherwise pick the sub-queue the interleave policy points to — but only if
-    #    the session is actually active; a pause should stop ordinary calling.
+    #    the session isn't paused. A paused session should stop ordinary calling; a
+    #    CLOSED one shouldn't -- closing just stops new joins (see join_queue), staff
+    #    should still be able to finish calling whoever's already waiting.
     if token is None:
-        if session.status != "active":
+        if session.status == "paused":
             raise SessionNotActiveError(session_id, session.status)
         ratio = parse_ratio(session.clinic.standard_priority_ratio)
         preferred_tier = next_subqueue(session.call_counter, ratio)

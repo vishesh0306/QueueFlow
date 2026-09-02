@@ -48,6 +48,7 @@ def _endpoints(clinic_id: uuid.UUID):
          {"patient_contact": {"type": "email", "value": "a@b.com"}}, ("doctor", "admin")),
         ("post", "/staff/queue/pause", {}, ("doctor", "admin")),
         ("post", "/staff/queue/resume", {}, ("doctor", "admin")),
+        ("post", "/staff/queue/close", {}, ("doctor", "admin")),
         ("get", f"/admin/clinics/{clinic_id}/config", None, ("admin",)),
         ("put", f"/admin/clinics/{clinic_id}/config", {"name": "New Name"}, ("admin",)),
         ("get", "/admin/analytics/daily", None, ("doctor", "admin")),

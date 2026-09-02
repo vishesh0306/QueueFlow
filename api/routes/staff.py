@@ -262,7 +262,18 @@ async def pause(db: Session = Depends(get_db), claims: JWTClaims = Depends(requi
 
 @router.post("/staff/queue/resume")
 async def resume(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
+    """Also serves as "reopen" for a session that was closed for the day."""
     session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
     session = await run_in_threadpool(session_service.resume_session, db, session.id)
+    await manager.broadcast_queue_updated(claims.clinic_id, session.id)
+    return {"session_id": session.id, "status": session.status}
+
+
+@router.post("/staff/queue/close")
+async def close(db: Session = Depends(get_db), claims: JWTClaims = Depends(require_role(*_OVERRIDE_ROLES))):
+    """End-of-day close: stops new joins/walk-ins, but staff can keep calling through
+    whoever's already waiting until the queue drains. Reopen via /staff/queue/resume."""
+    session = await run_in_threadpool(_resolve_session, db, claims.clinic_id)
+    session = await run_in_threadpool(session_service.close_session, db, session.id)
     await manager.broadcast_queue_updated(claims.clinic_id, session.id)
     return {"session_id": session.id, "status": session.status}

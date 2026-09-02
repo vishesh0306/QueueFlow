@@ -168,6 +168,40 @@ def test_mark_paid_rejects_a_cancelled_token(client, db):
     assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
 
 
+def test_close_blocks_new_joins_but_call_next_keeps_working(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    assert join_resp.status_code == 201
+
+    close_resp = client.post("/staff/queue/close", headers=_auth(staff_token))
+    assert close_resp.status_code == 200
+    assert close_resp.json()["status"] == "closed"
+
+    late_join = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "late@b.com"}, "tier": "standard"},
+    )
+    assert late_join.status_code == 409
+    assert late_join.json()["error"]["code"] == "SESSION_CLOSED"
+
+    call_resp = client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    assert call_resp.status_code == 200
+
+    reopen_resp = client.post("/staff/queue/resume", headers=_auth(staff_token))
+    assert reopen_resp.status_code == 200
+    assert reopen_resp.json()["status"] == "active"
+
+    rejoin = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "late@b.com"}, "tier": "standard"},
+    )
+    assert rejoin.status_code == 201
+
+
 def test_staff_can_change_a_waiting_tokens_tier(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")
