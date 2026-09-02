@@ -122,6 +122,7 @@ def list_queue(db: Session = Depends(get_db), claims: JWTClaims = Depends(requir
             token_id=t.id, display_number=t.display_number, tier=t.tier, status=t.status,
             patient_contact=t.patient_contact, emergency_override=t.emergency_override,
             joined_at=t.joined_at, called_at=t.called_at,
+            paid=t.payment.paid if t.payment is not None else False,
         )
 
     waiting = [t for t in tokens if t.status == "waiting"]
@@ -198,6 +199,17 @@ def mark_paid(token_id: uuid.UUID, body: MarkPaidRequest, db: Session = Depends(
     _verify_token_in_clinic(db, token_id, claims.clinic_id)
     try:
         payment = token_service.mark_paid(db, token_id, claims.staff_id, body.fee_amount_paise)
+    except InvalidTransitionError as exc:
+        raise APIError(409, "INVALID_TRANSITION", str(exc))
+    return {"token_id": token_id, "paid": payment.paid, "fee_amount_paise": payment.fee_amount_paise}
+
+
+@router.post("/staff/queue/tokens/{token_id}/void-payment")
+def void_payment(token_id: uuid.UUID, db: Session = Depends(get_db),
+                  claims: JWTClaims = Depends(require_role(*_STAFF_ROLES))):
+    _verify_token_in_clinic(db, token_id, claims.clinic_id)
+    try:
+        payment = token_service.void_payment(db, token_id)
     except InvalidTransitionError as exc:
         raise APIError(409, "INVALID_TRANSITION", str(exc))
     return {"token_id": token_id, "paid": payment.paid, "fee_amount_paise": payment.fee_amount_paise}

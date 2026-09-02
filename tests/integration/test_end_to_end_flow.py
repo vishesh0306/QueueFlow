@@ -274,6 +274,43 @@ def test_emergency_override_on_an_already_queued_patient_does_not_orphan_their_t
     assert matching[0]["emergency_override"] is True
 
 
+def test_staff_can_void_a_payment(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    token_id = join_resp.json()["token_id"]
+    client.post("/staff/queue/call-next", headers=_auth(staff_token))
+    client.post(
+        f"/staff/queue/tokens/{token_id}/mark-paid",
+        json={"fee_amount_paise": 20000},
+        headers=_auth(staff_token),
+    )
+
+    void_resp = client.post(f"/staff/queue/tokens/{token_id}/void-payment", headers=_auth(staff_token))
+    assert void_resp.status_code == 200
+    assert void_resp.json()["paid"] is False
+
+    queue = client.get("/staff/queue", headers=_auth(staff_token)).json()
+    assert queue["called"][0]["paid"] is False
+
+
+def test_void_payment_rejects_a_token_with_no_payment(client, db):
+    clinic, doctor = _make_clinic_with_doctor(db)
+    staff_token = create_access_token(doctor.id, clinic.id, "doctor")
+    join_resp = client.post(
+        f"/clinics/{clinic.id}/queue/join",
+        json={"patient_contact": {"type": "email", "value": "a@b.com"}, "tier": "standard"},
+    )
+    token_id = join_resp.json()["token_id"]
+
+    resp = client.post(f"/staff/queue/tokens/{token_id}/void-payment", headers=_auth(staff_token))
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
+
+
 def test_no_show_swap_via_api(client, db):
     clinic, doctor = _make_clinic_with_doctor(db)
     staff_token = create_access_token(doctor.id, clinic.id, "doctor")

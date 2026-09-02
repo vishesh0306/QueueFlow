@@ -82,6 +82,20 @@ def mark_paid(db: Session, token_id: uuid.UUID, collected_by: uuid.UUID, fee_amo
     return payment
 
 
+def void_payment(db: Session, token_id: uuid.UUID) -> Payment:
+    """Undo a mark-paid mistake (wrong patient, wrong amount) -- clears paid status and
+    who/when collected it, so the fee shows as due again and can be re-recorded."""
+    payment = db.get(Payment, token_id)
+    if payment is None or not payment.paid:
+        raise InvalidTransitionError(f"Token {token_id} has no recorded payment to void")
+    payment.paid = False
+    payment.collected_by = None
+    payment.collected_at = None
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
 def change_tier(db: Session, token_id: uuid.UUID, new_tier: str) -> Token:
     """Staff-driven tier change (standard<->priority) for a token still waiting to be
     called. Only the tier field moves -- sequence_no (join-order position) is untouched,

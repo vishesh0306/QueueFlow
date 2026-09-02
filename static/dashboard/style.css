@@ -78,6 +78,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .error { color: var(--danger); font-size: 13px; min-height: 16px; margin: 0; }
 
+.paid-badge { color: var(--success); font-weight: 600; font-size: 13px; }
+
 .back-link { font-size: 13px; color: var(--muted); text-decoration: none; margin-bottom: 8px; display: inline-block; }
 .back-link:hover { color: var(--accent); }
 .switch-link { font-size: 13px; color: var(--muted); text-align: center; margin: 4px 0 0; }

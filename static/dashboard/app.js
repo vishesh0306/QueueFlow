@@ -138,9 +138,12 @@ function renderCalled(tokens) {
     return;
   }
   for (const token of tokens) {
+    const paidControl = token.paid
+      ? `<span class="paid-badge">Paid ✓</span> <button data-action="void-payment" data-id="${token.token_id}" class="secondary">Void</button>`
+      : `<button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Paid</button>`;
     const row = tokenRow(token, `
       <button data-action="mark-served" data-id="${token.token_id}">Served</button>
-      <button data-action="mark-paid" data-id="${token.token_id}" class="secondary">Paid</button>
+      ${paidControl}
       <button data-action="no-show" data-id="${token.token_id}" class="danger">No-show</button>
     `);
     container.appendChild(row);
@@ -236,6 +239,9 @@ async function handleTokenAction(action, tokenId) {
         method: "POST",
         body: JSON.stringify({ tier: "priority" }),
       });
+    } else if (action === "void-payment") {
+      if (!confirm("Void this payment? It will show as unpaid again.")) return;
+      await apiFetch(`/staff/queue/tokens/${tokenId}/void-payment`, { method: "POST" });
     }
     refreshQueue();
   } catch (err) {

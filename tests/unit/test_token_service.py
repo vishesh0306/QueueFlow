@@ -5,7 +5,15 @@ import pytest
 
 from core.exceptions import DuplicateBookingError, InvalidTransitionError
 from core.queue_engine import call_next
-from core.token_service import cancel_token, change_tier, join_queue, mark_paid, mark_served, upgrade_to_priority
+from core.token_service import (
+    cancel_token,
+    change_tier,
+    join_queue,
+    mark_paid,
+    mark_served,
+    upgrade_to_priority,
+    void_payment,
+)
 from db.models import Clinic, QueueSession, StaffAccount
 
 
@@ -96,6 +104,39 @@ def test_mark_paid_succeeds_for_a_called_token(db):
 
     assert payment.paid is True
     assert payment.fee_amount_paise == 20000
+
+
+def test_void_payment_reverses_a_paid_status(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    call_next(db, session.id)
+    mark_paid(db, token.id, session.doctor_id, 20000)
+
+    voided = void_payment(db, token.id)
+
+    assert voided.paid is False
+    assert voided.collected_by is None
+    assert voided.collected_at is None
+
+
+def test_void_payment_rejects_a_token_with_no_payment_recorded(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    call_next(db, session.id)
+
+    with pytest.raises(InvalidTransitionError):
+        void_payment(db, token.id)
+
+
+def test_void_payment_rejects_voiding_an_already_voided_payment(db):
+    session = _make_clinic_session(db)
+    token = join_queue(db, session, "telegram:12345", "standard")
+    call_next(db, session.id)
+    mark_paid(db, token.id, session.doctor_id, 20000)
+    void_payment(db, token.id)
+
+    with pytest.raises(InvalidTransitionError):
+        void_payment(db, token.id)
 
 
 def test_change_tier_moves_a_waiting_token_between_tiers(db):

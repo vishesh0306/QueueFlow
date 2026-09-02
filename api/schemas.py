@@ -56,6 +56,7 @@ class QueueTokenSummary(BaseModel):
     emergency_override: bool
     joined_at: datetime
     called_at: datetime | None
+    paid: bool
 
 
 class QueueListResponse(BaseModel):
