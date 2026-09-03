@@ -7,4 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Runs migrations before every start, not just the first one -- a brand-new database
+# (a fresh Render Postgres, or anyone else's first deploy) has no tables at all until
+# this runs, and any DB-touching request fails with a raw 500 until someone remembers
+# to run it manually. Idempotent (no-op once already at head), safe on every restart.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]
