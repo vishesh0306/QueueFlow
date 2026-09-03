@@ -69,6 +69,7 @@ function showDashboard() {
   document.getElementById("dashboard-screen").classList.remove("hidden");
   document.getElementById("clinic-role").textContent = `Signed in as ${state.role}`;
   document.getElementById("clinic-id-display").textContent = state.clinicId;
+  document.getElementById("open-patient-app-link").href = patientLinkForThisClinic();
   document.getElementById("override-card").classList.toggle("hidden", !isPrivilegedRole());
   document.getElementById("close-reopen-btn").classList.toggle("hidden", !isPrivilegedRole());
   connectWebSocket();

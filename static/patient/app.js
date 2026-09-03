@@ -12,8 +12,19 @@ let currentTier = null;
 // numeric chat_id, so this is the only path that can produce a valid one.
 let resolvedTelegramId = null;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function urlClinicId() {
-  return new URLSearchParams(window.location.search).get("clinic");
+  const value = new URLSearchParams(window.location.search).get("clinic");
+  // A clinic id is always a UUID -- if the "clinic" query param instead holds a whole
+  // nested URL (a malformed/double-wrapped join link, however it got that way),
+  // using it as-is would build a broken API path and fail with a confusing 404/405.
+  // Treat it the same as no clinic id at all, so the join screen's own "enter it
+  // manually" fallback kicks in instead.
+  if (value && !UUID_PATTERN.test(value)) {
+    return null;
+  }
+  return value;
 }
 
 function urlTelegramId() {
