@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from api.deps import APIError
 from api.schemas import JoinQueueRequest, JoinQueueResponse, TokenStatusResponse
+from config import settings
 from core import session_service, token_service
 from core.estimator import estimated_wait_seconds
 from core.exceptions import DuplicateBookingError, InvalidTransitionError, NoDoctorConfiguredError, SessionClosedError
@@ -15,6 +16,20 @@ from db.session import get_db
 from ws.gateway import manager
 
 router = APIRouter(tags=["patient"])
+
+
+@router.get("/clinics/{clinic_id}/telegram-connect")
+def telegram_connect_link(clinic_id: uuid.UUID, db: Session = Depends(get_db)):
+    """A patient can't know their own numeric Telegram chat_id up front -- the bot has
+    to learn it from them messaging it first. This hands back a /start deep link
+    carrying the clinic_id as payload; telegram_bot.py resolves the resulting chat_id
+    and replies with a join link that has it already filled in (see that file)."""
+    clinic = db.get(Clinic, clinic_id)
+    if clinic is None:
+        raise APIError(404, "CLINIC_NOT_FOUND", "No such clinic.")
+    if not settings.telegram_bot_username:
+        raise APIError(409, "TELEGRAM_NOT_CONFIGURED", "This clinic hasn't set up Telegram notifications.")
+    return {"deep_link": f"https://t.me/{settings.telegram_bot_username}?start={clinic_id}"}
 
 
 @router.post("/clinics/{clinic_id}/queue/join", response_model=JoinQueueResponse, status_code=201)

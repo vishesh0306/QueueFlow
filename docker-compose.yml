@@ -33,5 +33,15 @@ services:
       DATABASE_URL: postgresql://queueflow:queueflow@postgres:5432/queueflow
       REDIS_URL: redis://redis:6379/0
 
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["python", "telegram_bot.py"]
+    depends_on: [postgres]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://queueflow:queueflow@postgres:5432/queueflow
+
 volumes:
   pgdata:

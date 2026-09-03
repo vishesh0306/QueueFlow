@@ -7,9 +7,17 @@ let ws = null;
 // what decides whether the upgrade button shows -- reading it off the WS payload
 // directly would make the button flicker hidden on every live update.
 let currentTier = null;
+// Set once the patient's Telegram chat_id has been resolved via the /start deep-link
+// flow (see telegram_bot.py) -- there's no way to ask a patient to type their own
+// numeric chat_id, so this is the only path that can produce a valid one.
+let resolvedTelegramId = null;
 
 function urlClinicId() {
   return new URLSearchParams(window.location.search).get("clinic");
+}
+
+function urlTelegramId() {
+  return new URLSearchParams(window.location.search).get("telegram_id");
 }
 
 function loadSession() {
@@ -44,6 +52,12 @@ async function apiFetch(path, options = {}) {
 
 // ---- Screens ---------------------------------------------------------
 
+function updateContactFieldVisibility() {
+  const isTelegram = document.getElementById("contact-type").value === "telegram";
+  document.getElementById("email-contact-field").classList.toggle("hidden", isTelegram);
+  document.getElementById("telegram-contact-field").classList.toggle("hidden", !isTelegram);
+}
+
 function showJoinScreen() {
   document.getElementById("join-screen").classList.remove("hidden");
   document.getElementById("status-screen").classList.add("hidden");
@@ -55,6 +69,15 @@ function showJoinScreen() {
     clinicInput.classList.remove("hidden");
     clinicMissing.classList.remove("hidden");
   }
+
+  const telegramId = urlTelegramId();
+  if (telegramId) {
+    resolvedTelegramId = telegramId;
+    document.getElementById("contact-type").value = "telegram";
+    document.getElementById("telegram-connected-hint").classList.remove("hidden");
+    document.getElementById("telegram-connect-btn").classList.add("hidden");
+  }
+  updateContactFieldVisibility();
 }
 
 function showStatusScreen() {
@@ -138,6 +161,28 @@ async function resumeExistingSession() {
   return false;
 }
 
+// ---- Contact method -------------------------------------------------------
+
+document.getElementById("contact-type").addEventListener("change", updateContactFieldVisibility);
+
+document.getElementById("telegram-connect-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("telegram-connect-error");
+  errorEl.textContent = "";
+
+  const clinicId = urlClinicId() || document.getElementById("clinic-id-input").value.trim();
+  if (!clinicId) {
+    errorEl.textContent = "A clinic ID is required first.";
+    return;
+  }
+
+  try {
+    const data = await apiFetch(`/clinics/${clinicId}/telegram-connect`);
+    window.location.href = data.deep_link;
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
+
 // ---- Join ---------------------------------------------------------------
 
 document.getElementById("join-form").addEventListener("submit", async (e) => {
@@ -153,8 +198,22 @@ document.getElementById("join-form").addEventListener("submit", async (e) => {
 
   const tier = document.querySelector('input[name="tier"]:checked').value;
   const contactType = document.getElementById("contact-type").value;
-  const contactValue = document.getElementById("contact-value").value.trim();
   const fallbackEmail = document.getElementById("fallback-email").value.trim();
+
+  let contactValue;
+  if (contactType === "telegram") {
+    if (!resolvedTelegramId) {
+      errorEl.textContent = "Tap \"Connect via Telegram\" first so we know where to notify you.";
+      return;
+    }
+    contactValue = resolvedTelegramId;
+  } else {
+    contactValue = document.getElementById("contact-value").value.trim();
+    if (!contactValue) {
+      errorEl.textContent = "An email address is required.";
+      return;
+    }
+  }
 
   try {
     const data = await apiFetch(`/clinics/${clinicId}/queue/join`, {

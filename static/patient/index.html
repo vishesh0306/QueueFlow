@@ -22,17 +22,28 @@
         <option value="email">Email</option>
       </select>
     </label>
-    <input type="text" id="contact-value" placeholder="Telegram handle or email address" required>
+
+    <div id="email-contact-field">
+      <input type="email" id="contact-value" placeholder="Email address">
+    </div>
+
+    <div id="telegram-contact-field" class="hidden">
+      <p id="telegram-connected-hint" class="hint hidden">✓ Telegram connected — you'll get your notifications there.</p>
+      <button type="button" id="telegram-connect-btn" class="secondary">Connect via Telegram</button>
+      <p id="telegram-connect-error" class="error"></p>
+    </div>
+
     <input type="email" id="fallback-email" placeholder="Backup email (optional, used if the above fails)">
 
     <label class="tier-choice">
       <input type="radio" name="tier" value="standard" checked>
-      <span><strong>Standard</strong> — free</span>
+      <span><strong>Standard</strong></span>
     </label>
     <label class="tier-choice">
       <input type="radio" name="tier" value="priority">
-      <span><strong>Priority</strong> — paid, moves faster (fee shown at front desk)</span>
+      <span><strong>Priority</strong> — moves faster</span>
     </label>
+    <p class="hint">Fee is shown once you join.</p>
 
     <button type="submit">Join queue</button>
     <p id="join-error" class="error"></p>
