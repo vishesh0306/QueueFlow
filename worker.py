@@ -3,6 +3,7 @@ Telegram/SMTP call can never tie up an API worker thread (queueflow-lld.md §1).
 
 import logging
 import signal
+import threading
 import time
 
 import redis
@@ -22,8 +23,13 @@ def _handle_shutdown(signum, frame):
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    signal.signal(signal.SIGTERM, _handle_shutdown)
-    signal.signal(signal.SIGINT, _handle_shutdown)
+    # signal.signal() only works from a process's main thread -- raises ValueError
+    # otherwise. When run as a background thread inside the API process (see
+    # RUN_BACKGROUND_WORKERS_IN_PROCESS in config.py), this is skipped: the daemon
+    # thread just gets torn down when the main process exits, no graceful drain.
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, _handle_shutdown)
+        signal.signal(signal.SIGINT, _handle_shutdown)
 
     logger.info("Notification worker started")
     while _running:
