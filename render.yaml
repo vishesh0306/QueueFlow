@@ -1,0 +1,75 @@
+services:
+  - type: web
+    name: queueflow-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: queueflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: queueflow-redis
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+
+  - type: worker
+    name: queueflow-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: queueflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: queueflow-redis
+          property: connectionString
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_ADDRESS
+        sync: false
+
+  - type: worker
+    name: queueflow-telegram-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    dockerCommand: python telegram_bot.py
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: queueflow-db
+          property: connectionString
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+
+  - type: redis
+    name: queueflow-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: queueflow-db
+    plan: free
